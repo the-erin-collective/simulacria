@@ -1,0 +1,117 @@
+<div class="settings-modal" *ngIf="visible">
+  <div class="settings-content">
+    <h2>Game Settings</h2>
+    
+    <div class="settings-group">
+      <h3>Display</h3>
+      
+      <div class="setting-item">
+        <label for="renderDistance">Render Distance:</label>
+        <input 
+          type="range" 
+          id="renderDistance" 
+          min="1" 
+          max="8" 
+          step="1" 
+          [(ngModel)]="settings.renderDistance" 
+          (input)="updateRenderDistance()">
+        <span>{{ settings.renderDistance }}</span>
+      </div>
+      
+      <div class="setting-item">
+        <label for="showFPS">Show FPS:</label>
+        <input 
+          type="checkbox" 
+          id="showFPS" 
+          [(ngModel)]="settings.showFPS">
+      </div>
+      
+      <div class="setting-item">
+        <label for="showCoordinates">Show Coordinates:</label>
+        <input 
+          type="checkbox" 
+          id="showCoordinates" 
+          [(ngModel)]="settings.showCoordinates">
+      </div>
+      
+      <div class="setting-item">
+        <label for="showDebugInfo">Show Debug Info:</label>
+        <input 
+          type="checkbox" 
+          id="showDebugInfo" 
+          [(ngModel)]="settings.showDebugInfo">
+      </div>
+    </div>
+    
+    <div class="settings-group">
+      <h3>Controls</h3>
+      
+      <div class="setting-item">
+        <label for="mouseSensitivity">Mouse Sensitivity:</label>
+        <input 
+          type="range" 
+          id="mouseSensitivity" 
+          min="0.0001" 
+          max="0.005" 
+          step="0.0001" 
+          [(ngModel)]="settings.mouseSensitivity" 
+          (input)="updateMouseSensitivity()">
+        <span>{{ (settings.mouseSensitivity * 1000).toFixed(1) }}</span>
+      </div>
+    </div>
+    
+    <div class="settings-group">
+      <h3>Audio</h3>
+      
+      <div class="setting-item">
+        <label for="soundVolume">Sound Volume:</label>
+        <input 
+          type="range" 
+          id="soundVolume" 
+          min="0" 
+          max="1" 
+          step="0.1" 
+          [(ngModel)]="settings.soundVolume">
+        <span>{{ Math.round(settings.soundVolume * 100) }}%</span>
+      </div>
+      
+      <div class="setting-item">
+        <label for="musicVolume">Music Volume:</label>
+        <input 
+          type="range" 
+          id="musicVolume" 
+          min="0" 
+          max="1" 
+          step="0.1" 
+          [(ngModel)]="settings.musicVolume">
+        <span>{{ Math.round(settings.musicVolume * 100) }}%</span>
+      </div>
+    </div>
+    
+    <div class="settings-group">
+      <h3>World</h3>
+      
+      <div class="setting-item">
+        <label for="autoSaveInterval">Auto-Save Interval (seconds):</label>
+        <input 
+          type="number" 
+          id="autoSaveInterval" 
+          min="10" 
+          max="300" 
+          step="10" 
+          [(ngModel)]="settings.autoSaveInterval" 
+          (change)="updateAutoSaveInterval()">
+      </div>
+      
+      <div class="world-buttons">
+        <button (click)="saveWorld()" class="save-button">Save World</button>
+        <button (click)="resetToDefaults()" class="reset-button">Reset to Defaults</button>
+      </div>
+    </div>
+    
+    <div class="button-group">
+      <button (click)="saveAndClose()" class="primary-button">Save & Close</button>
+      <button (click)="returnToMenu()" class="menu-button">Return to Menu</button>
+    </div>
+  </div>
+</div>

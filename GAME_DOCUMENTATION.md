@@ -1,8 +1,17 @@
-# CraftEvolution - Minecraft-like Game with Evolutionary Terrain Generation
+# CraftEvolution - Minecraft-like Game with Evolutionary Terrain Generation (v2.0)
 
 ## Overview
 
-CraftEvolution is an innovative 3D block-based game built with Angular 17, NgRx, and BabylonJS that features a unique **evolutionary terrain generation system** instead of traditional noise-based algorithms. Every world is completely unique and generated through probabilistic mutations.
+CraftEvolution is an innovative 3D block-based game built with Angular 20, NgRx, and BabylonJS that features a unique **evolutionary terrain generation system** instead of traditional noise-based algorithms. Every world is completely unique and generated through probabilistic mutations.
+
+## 🆕 Version 2.0 Features
+
+- **Angular 20 Zoneless Mode**: Enhanced performance through removal of zone.js dependency
+- **Surface-Level Player Spawning**: Players now spawn safely on the terrain surface
+- **In-Game Settings Modal**: ESC key now toggles an overlay settings menu
+- **3D Chunk-Based World Storage**: Optimized world storage using 16x16x16 chunks
+- **Auto-Save System**: World changes and player position are automatically saved
+- **World Persistence**: Game automatically loads previously saved worlds
 
 ## 🎮 Game Features
 
@@ -69,8 +78,8 @@ Special logic for wood blocks:
 ## 🏗️ Technical Architecture
 
 ### Frontend Stack
-- **Angular 17**: Latest Angular with standalone components
-- **NgRx 17**: State management with actions, reducers, selectors
+- **Angular 20**: Latest Angular with zoneless mode for performance
+- **NgRx 20**: State management with actions, reducers, selectors, and signals
 - **BabylonJS 8.23**: 3D rendering engine with instanced meshes
 - **TypeScript**: Type-safe development
 - **SCSS**: Advanced styling with dark theme
@@ -85,17 +94,32 @@ interface GameState {
 }
 ```
 
+### Chunk-Based Storage
+```typescript
+interface WorldChunk {
+  chunkX: number;
+  chunkY: number;
+  chunkZ: number;
+  blocks: Map<string, Block>; // Local coordinates -> Block
+  lastAccessed: number;
+  isDirty: boolean; // Needs saving
+}
+```
+
 ### Project Structure
 ```
 src/app/
 ├── core/                    # Core services
 │   └── services/
 │       ├── terrain-generation.service.ts  # Evolutionary algorithm
+│       ├── chunk-manager.service.ts       # Optimized block storage
+│       ├── db.service.ts                  # Persistence layer
 │       └── babylon.service.ts            # 3D rendering
 ├── features/
 │   ├── menu/               # Landing page
 │   ├── game/               # Main game component
 │   ├── inventory/          # Inventory & crafting UI
+│   ├── settings/           # In-game settings modal
 │   └── ui/                 # Game UI components
 ├── shared/
 │   └── models/             # TypeScript interfaces
@@ -128,6 +152,7 @@ src/app/
 - **Level of Detail (LOD) system**
 - **Efficient block rendering** with BabylonJS instances
 - **State management** optimized for large block counts
+- **Zoneless Angular** for better performance
 
 ### Development Tools
 - **NgRx DevTools** integration
@@ -160,18 +185,19 @@ src/app/
 The game is built as a progressive web application that can be deployed to any static hosting service. The production build includes:
 
 - **Optimized bundles** with tree-shaking
-- **Service worker** for offline capability
+- **Auto-save functionality** for world persistence
 - **Responsive design** for all devices
 - **WebGL compatibility** checking
 
 ## 🎮 How to Play
 
-1. **Start**: Click "New World" to generate a unique world
+1. **Start**: Click "New World" to generate a unique world (or load a saved one)
 2. **Movement**: Use WASD keys + mouse to navigate
 3. **Breaking**: Left-click blocks to break them
 4. **Inventory**: Broken blocks appear in your toolbar
 5. **Crafting**: Gather materials and use crafting recipes
 6. **Building**: Right-click to place blocks from inventory
+7. **Settings**: Press ESC to open the in-game settings menu
 
 ## 🌟 Unique Features
 
@@ -196,16 +222,6 @@ The evolutionary algorithm creates realistic terrain through:
 - **Natural boundaries** between different block types
 - **Organic cave and structure formation**
 
-## 🔮 Future Enhancements
-
-- **Multiplayer support** with synchronized evolution
-- **Advanced crafting** with more complex recipes
-- **Mob systems** with AI behavior
-- **World persistence** and save/load functionality
-- **Texture packs** and visual customization
-- **Sound effects** and ambient audio
-- **Mobile touch controls** optimization
-
 ## 📦 Installation & Development
 
 ```bash
@@ -216,10 +232,12 @@ npm install
 npm start
 
 # Production build
-npm run build
+npm run build:prod
+# or use the build script
+./build_production.sh
 
-# Serve production build
-npm run serve:ssr
+# Serve production build locally
+npx http-server dist/minecraft-game/browser
 ```
 
 ## 🏆 Technical Achievements
@@ -232,5 +250,7 @@ npm run serve:ssr
 6. **Developed complete crafting system** with recipe matching
 7. **Implemented advanced tree generation** algorithm
 8. **Created production-ready game** with all core Minecraft mechanics
+9. **Implemented chunk-based storage** for efficient world management
+10. **Built persistence layer** for seamless world loading/saving
 
 This project demonstrates advanced frontend development skills, complex state management, 3D graphics programming, and innovative algorithm design, all while delivering a fun and engaging gaming experience.

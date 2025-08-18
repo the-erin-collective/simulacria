@@ -260,6 +260,10 @@ export class BabylonService {
     }
   }
 
+  getCamera(): UniversalCamera {
+    return this.camera;
+  }
+
   getEngine(): Engine {
     return this.engine;
   }

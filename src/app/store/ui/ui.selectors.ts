@@ -6,6 +6,7 @@ export const selectUIState = createSelector(selectGameState, (state) => state.ui
 export const selectGameMode = createSelector(selectUIState, (state) => state.gameMode);
 export const selectShowInventory = createSelector(selectUIState, (state) => state.showInventory);
 export const selectShowCraftingTable = createSelector(selectUIState, (state) => state.showCraftingTable);
+export const selectShowSettings = createSelector(selectUIState, (state) => state.showSettings);
 export const selectTargetBlock = createSelector(selectUIState, (state) => state.targetBlock);
 export const selectBreakingProgress = createSelector(selectUIState, (state) => state.breakingProgress);
 export const selectIsBreaking = createSelector(selectUIState, (state) => state.isBreaking);

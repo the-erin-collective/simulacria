@@ -42,6 +42,20 @@ Alternative copy location:
 3. Game will run directly in the browser
 
 ### Option 2: Local Testing
+
+**Node.js Options (Recommended):**
+```bash
+# Quick start (no installation)
+cd minecraft-game/dist/minecraft-game/browser
+npx http-server
+# Opens at http://localhost:8080
+
+# Or install globally for future use
+npm install -g http-server
+http-server
+```
+
+**Python Alternative:**
 ```bash
 cd minecraft-game/dist/minecraft-game/browser
 python3 -m http.server 8000

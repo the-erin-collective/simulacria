@@ -6,6 +6,7 @@ export const initialUIState: UIState = {
   gameMode: 'menu',
   showInventory: false,
   showCraftingTable: false,
+  showSettings: false,
   targetBlock: undefined,
   breakingProgress: 0,
   isBreaking: false,
@@ -74,5 +75,21 @@ export const uiReducer = createReducer(
   on(UIActions.clearCraftingSlots, (state) => ({
     ...state,
     selectedCraftingSlots: Array(3).fill(null).map(() => Array(3).fill(null))
+  })),
+
+  // Settings actions
+  on(UIActions.toggleSettings, (state) => ({
+    ...state,
+    showSettings: !state.showSettings
+  })),
+
+  on(UIActions.showSettings, (state) => ({
+    ...state,
+    showSettings: true
+  })),
+
+  on(UIActions.hideSettings, (state) => ({
+    ...state,
+    showSettings: false
   }))
 );

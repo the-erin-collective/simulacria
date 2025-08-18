@@ -31,3 +31,8 @@ export const selectCraftingSlot = createAction(
 );
 
 export const clearCraftingSlots = createAction('[UI] Clear Crafting Slots');
+
+// Settings actions
+export const toggleSettings = createAction('[UI] Toggle Settings');
+export const showSettings = createAction('[UI] Show Settings');
+export const hideSettings = createAction('[UI] Hide Settings');
