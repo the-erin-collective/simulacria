@@ -1,0 +1,22 @@
+import { createSelector } from '@ngrx/store';
+import { selectGameState } from '../world/world.selectors';
+
+export const selectUIState = createSelector(selectGameState, (state) => state.ui);
+
+export const selectGameMode = createSelector(selectUIState, (state) => state.gameMode);
+export const selectShowInventory = createSelector(selectUIState, (state) => state.showInventory);
+export const selectShowCraftingTable = createSelector(selectUIState, (state) => state.showCraftingTable);
+export const selectTargetBlock = createSelector(selectUIState, (state) => state.targetBlock);
+export const selectBreakingProgress = createSelector(selectUIState, (state) => state.breakingProgress);
+export const selectIsBreaking = createSelector(selectUIState, (state) => state.isBreaking);
+export const selectSelectedCraftingSlots = createSelector(selectUIState, (state) => state.selectedCraftingSlots);
+
+export const selectIsInGame = createSelector(
+  selectGameMode,
+  (mode) => mode === 'playing'
+);
+
+export const selectIsInMenu = createSelector(
+  selectGameMode,
+  (mode) => mode === 'menu'
+);

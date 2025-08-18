@@ -1,0 +1,23 @@
+<div class="inventory-container">
+  <div class="inventory-header">
+    <h3>Inventory</h3>
+  </div>
+  
+  <div class="inventory-grid">
+    <div class="inventory-row" *ngFor="let row of [0,1,2]; let rowIndex = index">
+      <div class="inventory-slot" 
+           *ngFor="let col of [0,1,2,3,4,5,6,7,8]; let colIndex = index"
+           [class.selected]="rowIndex === 0 && colIndex === selectedSlot"
+           (click)="selectSlot(rowIndex * 9 + colIndex)">
+        <div class="slot-content" *ngIf="items[rowIndex * 9 + colIndex] as item">
+          <div class="item-icon">{{ getItemIcon(item.type) }}</div>
+          <div class="item-quantity" *ngIf="item.quantity > 1">{{ item.quantity }}</div>
+          <div class="item-tooltip">
+            <div class="tooltip-name">{{ getItemName(item.type) }}</div>
+            <div class="tooltip-quantity">Quantity: {{ item.quantity }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

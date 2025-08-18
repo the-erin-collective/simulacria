@@ -1,0 +1,58 @@
+<div class="crafting-container">
+  <div class="crafting-header">
+    <h3>Crafting Table</h3>
+    <button class="close-btn" (click)="closeCraftingTable()">✕</button>
+  </div>
+  
+  <div class="crafting-content">
+    <div class="crafting-grid">
+      <h4>Crafting Grid</h4>
+      <div class="grid">
+        <div class="grid-row" *ngFor="let row of [0,1,2]; let rowIndex = index">
+          <div class="crafting-slot" 
+               *ngFor="let col of [0,1,2]; let colIndex = index"
+               (click)="selectCraftingSlot(rowIndex, colIndex)">
+            <div class="slot-content" *ngIf="craftingGrid[rowIndex][colIndex] as item">
+              <div class="item-icon">{{ getItemIcon(item.type) }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="arrow">→</div>
+    
+    <div class="result-area">
+      <h4>Result</h4>
+      <div class="result-slot" [class.has-result]="currentRecipe">
+        <div class="slot-content" *ngIf="currentRecipe">
+          <div class="item-icon">{{ getItemIcon(currentRecipe.result.type) }}</div>
+          <div class="item-quantity" *ngIf="currentRecipe.result.quantity > 1">
+            {{ currentRecipe.result.quantity }}
+          </div>
+        </div>
+      </div>
+      
+      <button class="craft-btn" 
+              [disabled]="!currentRecipe"
+              (click)="craft()">
+        Craft
+      </button>
+    </div>
+  </div>
+  
+  <div class="recipes-section">
+    <h4>Available Recipes</h4>
+    <div class="recipes-list">
+      <div class="recipe-item" 
+           *ngFor="let recipe of availableRecipes"
+           [class.active]="recipe === currentRecipe">
+        <div class="recipe-name">{{ recipe.name }}</div>
+        <div class="recipe-result">
+          {{ getItemIcon(recipe.result.type) }} 
+          {{ getItemName(recipe.result.type) }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

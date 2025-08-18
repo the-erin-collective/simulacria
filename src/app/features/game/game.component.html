@@ -1,0 +1,69 @@
+<div class="game-container">
+  <canvas #renderCanvas class="render-canvas"></canvas>
+  
+  <!-- Game UI Overlay -->
+  <div class="game-ui">
+    <!-- Crosshair -->
+    <div class="crosshair">
+      <div class="crosshair-h"></div>
+      <div class="crosshair-v"></div>
+    </div>
+    
+    <!-- Breaking Progress -->
+    <div class="breaking-progress" *ngIf="(isBreaking$ | async)">
+      <div class="progress-bar">
+        <div class="progress-fill" [style.width.%]="(breakingProgress$ | async)"></div>
+      </div>
+    </div>
+    
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="toolbar-slot" 
+           *ngFor="let item of (toolbarItems$ | async); let i = index"
+           [class.selected]="i === selectedSlot"
+           (click)="onInventorySlotSelected(i)">
+        <div class="slot-content" *ngIf="item">
+          <div class="item-icon">{{ getItemIcon(item.type) }}</div>
+          <div class="item-quantity" *ngIf="item.quantity > 1">{{ item.quantity }}</div>
+        </div>
+      </div>
+      <!-- Fill empty slots -->
+      <div class="toolbar-slot" 
+           *ngFor="let slot of getEmptySlots((toolbarItems$ | async) || []); let i = index"
+           [class.selected]="((toolbarItems$ | async)?.length || 0) + i === selectedSlot">
+        <div class="slot-content"></div>
+      </div>
+    </div>
+    
+    <!-- Health Bar -->
+    <div class="health-bar">
+      <div class="health-hearts">
+        <span class="heart" *ngFor="let heart of [1,2,3,4,5,6,7,8,9,10]">❤️</span>
+      </div>
+    </div>
+    
+    <!-- Debug Info -->
+    <div class="debug-info">
+      <p>Position: {{ debugInfo.position }}</p>
+      <p>FPS: {{ debugInfo.fps }}</p>
+      <p>Blocks: {{ debugInfo.blocks }}</p>
+      <p *ngIf="(targetBlock$ | async) as target">Target: ({{ target.x }}, {{ target.y }}, {{ target.z }})</p>
+      <p *ngIf="(selectedItem$ | async) as item">Selected: {{ getItemName(item.type) }}</p>
+    </div>
+    
+    <!-- Inventory Overlay -->
+    <div class="inventory-overlay" *ngIf="showInventory">
+      <app-inventory 
+        [items]="(toolbarItems$ | async) || []"
+        [selectedSlot]="selectedSlot"
+        (slotSelected)="onInventorySlotSelected($event)"
+        (itemUsed)="onItemUsed($event)">
+      </app-inventory>
+    </div>
+    
+    <!-- Game Instructions -->
+    <div class="instructions" *ngIf="!showInventory">
+      <p>WASD: Move | Mouse: Look | Left Click: Break | Right Click: Place | 1-9: Select | Tab: Inventory | ESC: Menu</p>
+    </div>
+  </div>
+</div>
