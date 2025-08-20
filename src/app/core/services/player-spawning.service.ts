@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Store } from '@ngrx/store';
-import { Vector3, BlockType } from '../../shared/models/block.model';
+import { Vector3, BlockType, Block } from '../../shared/models/block.model';
 import { selectBlockAtPosition } from '../../store/world/world.selectors';
 import { take } from 'rxjs/operators';
 
@@ -11,13 +11,14 @@ export class PlayerSpawningService {
   constructor(private store: Store) {}
 
   async findSafeSpawnPosition(): Promise<Vector3> {
-    const searchRadius = 10; // Increased from 5 to cover more area
-    const maxHeight = 100;
-    const minHeight = -50;
-
     console.log('Finding safe spawn position...');
+    
+    // For new worlds, find a surface position based on generated terrain
+    // Search in a spiral pattern around origin
+    const searchRadius = 20;
+    const maxHeight = 50;
+    const minHeight = -10;
 
-    // Start searching from origin in a spiral pattern
     for (let radius = 0; radius <= searchRadius; radius++) {
       for (let x = -radius; x <= radius; x++) {
         for (let y = -radius; y <= radius; y++) {
@@ -33,63 +34,63 @@ export class PlayerSpawningService {
       }
     }
 
-    console.warn('No safe spawn found, using fallback position high in the air');
-    // Fallback: spawn high in the air and let player fall
-    return { x: 0, y: 0, z: maxHeight };
+    console.warn('No safe spawn found using search, trying fallback approaches...');
+    
+    // Fallback 1: Try origin area with higher spawn position
+    for (let z = maxHeight; z >= minHeight; z--) {
+      const testPos = { x: 0, y: 0, z };
+      if (await this.isPositionSafe(testPos)) {
+        console.log(`Using fallback spawn at origin: (0, 0, ${z})`);
+        return testPos;
+      }
+    }
+    
+    // Fallback 2: Spawn high above ground
+    console.warn('Using emergency high spawn position');
+    return { x: 0, y: 0, z: 20 }; // Spawn 20 blocks above origin
   }
 
   private async findSurfaceAt(x: number, y: number, maxZ: number, minZ: number): Promise<Vector3 | null> {
     console.log(`Checking surface at (${x}, ${y})...`);
     
-    return new Promise((resolve) => {
-      // Start from the top and scan downward
-      let currentZ = maxZ;
-      let consecutiveAirBlocks = 0;
-      let foundSurface = false;
-
-      const checkNextBlock = () => {
-        if (currentZ < minZ) {
-          console.log(`No valid surface found at (${x}, ${y})`);
-          resolve(null);
-          return;
+    // Start from the top and scan downward
+    for (let z = maxZ; z >= minZ; z--) {
+      try {
+        const blockAtCurrentZ = await this.getBlockAtPosition(x, y, z);
+        const blockAboveCurrentZ = await this.getBlockAtPosition(x, y, z + 1);
+        const blockAboveAboveCurrentZ = await this.getBlockAtPosition(x, y, z + 2);
+        
+        // Check if we found a solid block with 2 air blocks above it
+        const currentIsSolid = blockAtCurrentZ && blockAtCurrentZ.metadata.blockType !== BlockType.AIR && blockAtCurrentZ.metadata.blockType !== BlockType.WATER;
+        const aboveIsAir = !blockAboveCurrentZ || blockAboveCurrentZ.metadata.blockType === BlockType.AIR;
+        const aboveAboveIsAir = !blockAboveAboveCurrentZ || blockAboveAboveCurrentZ.metadata.blockType === BlockType.AIR;
+        
+        if (currentIsSolid && aboveIsAir && aboveAboveIsAir) {
+          const spawnZ = z + 1.5; // Spawn 1.5 blocks above the solid surface
+          console.log(`Found valid surface at (${x}, ${y}, ${spawnZ})`);
+          return { x, y, z: spawnZ };
         }
+      } catch (error) {
+        // If we can't get block data, continue searching
+        continue;
+      }
+    }
 
-        this.store.select(selectBlockAtPosition).pipe(take(1)).subscribe(getBlock => {
-          const currentBlock = getBlock(x, y, currentZ);
-          
-          // If this is an air block, increment our counter
-          if (!currentBlock || currentBlock.metadata.blockType === BlockType.AIR) {
-            consecutiveAirBlocks++;
-          } else {
-            // Not an air block, reset our counter
-            consecutiveAirBlocks = 0;
-          }
-
-          // If we have 2 consecutive air blocks and the block below is solid,
-          // we've found a valid surface (player is 2 blocks tall)
-          if (consecutiveAirBlocks >= 2) {
-            const blockBelow = getBlock(x, y, currentZ - 2);
-            
-            if (blockBelow && 
-                blockBelow.metadata.blockType !== BlockType.AIR && 
-                blockBelow.metadata.blockType !== BlockType.WATER) {
-              
-              foundSurface = true;
-              // Spawn player at the lower of the two air blocks
-              const spawnZ = currentZ - 1 + 0.5; // +0.5 to spawn at the middle of the block
-              console.log(`Found valid surface at (${x}, ${y}, ${spawnZ})`);
-              resolve({ x, y, z: spawnZ });
-              return;
-            }
-          }
-
-          // Move down and check the next block
-          currentZ--;
-          setTimeout(checkNextBlock, 0); // Use setTimeout to avoid stack overflow
-        });
-      };
-
-      checkNextBlock();
+    console.log(`No valid surface found at (${x}, ${y})`);
+    return null;
+  }
+  
+  private async getBlockAtPosition(x: number, y: number, z: number): Promise<Block | null> {
+    return new Promise((resolve) => {
+      // Try to get block from store first
+      this.store.select(selectBlockAtPosition).pipe(take(1)).subscribe(getBlock => {
+        try {
+          const block = getBlock(x, y, z);
+          resolve(block);
+        } catch (error) {
+          resolve(null);
+        }
+      });
     });
   }
 
@@ -113,7 +114,7 @@ export class PlayerSpawningService {
                            blockBelow.metadata.blockType !== BlockType.AIR &&
                            blockBelow.metadata.blockType !== BlockType.WATER;
 
-        resolve(feetClear && headClear && groundBelow);
+        resolve(Boolean(feetClear && headClear && groundBelow));
       });
     });
   }

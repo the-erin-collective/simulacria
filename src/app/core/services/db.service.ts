@@ -1,7 +1,9 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { WorldChunk } from './chunk-manager.service';
 import { PlayerState } from '../../shared/models/player.model';
 import { GameSettings } from '../../shared/models/game.model';
+import { Block } from '../../shared/models/block.model';
 
 @Injectable({
   providedIn: 'root'
@@ -10,13 +12,24 @@ export class DBService {
   private db: IDBDatabase | null = null;
   private readonly DB_NAME = 'minecraft_clone';
   private readonly DB_VERSION = 1;
+  private isBrowser: boolean;
   
-  constructor() {
-    this.initDatabase();
+  constructor(@Inject(PLATFORM_ID) private platformId: Object) {
+    this.isBrowser = isPlatformBrowser(this.platformId);
+    // Only initialize database in browser environment
+    if (this.isBrowser) {
+      this.initDatabase();
+    }
   }
   
   private initDatabase(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
+      // Return early if not in browser
+      if (!this.isBrowser) {
+        reject(new Error('IndexedDB not available in server environment'));
+        return;
+      }
+      
       if (this.db) {
         resolve(this.db);
         return;
@@ -58,6 +71,12 @@ export class DBService {
   }
   
   async saveChunk(chunk: WorldChunk): Promise<void> {
+    // Return early if not in browser
+    if (!this.isBrowser) {
+      console.warn('Database operations not available in server environment');
+      return;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -92,6 +111,11 @@ export class DBService {
   }
   
   async loadChunk(chunkX: number, chunkY: number, chunkZ: number = 0): Promise<WorldChunk | null> {
+    // Return null if not in browser
+    if (!this.isBrowser) {
+      return null;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -112,8 +136,8 @@ export class DBService {
         }
         
         // Convert blocks array back to Map
-        const blocks = new Map(
-          request.result.blocks.map(({ key, block }: any) => [key, block])
+        const blocks = new Map<string, Block>(
+          request.result.blocks.map(({ key, block }: any) => [key as string, block as Block])
         );
         
         const chunk: WorldChunk = {
@@ -133,6 +157,12 @@ export class DBService {
   }
   
   async savePlayerState(player: PlayerState): Promise<void> {
+    // Return early if not in browser
+    if (!this.isBrowser) {
+      console.warn('Database operations not available in server environment');
+      return;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -158,6 +188,11 @@ export class DBService {
   }
   
   async loadPlayerState(): Promise<PlayerState | null> {
+    // Return null if not in browser
+    if (!this.isBrowser) {
+      return null;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -186,6 +221,12 @@ export class DBService {
   }
   
   async saveGameSettings(settings: GameSettings): Promise<void> {
+    // Return early if not in browser
+    if (!this.isBrowser) {
+      console.warn('Database operations not available in server environment');
+      return;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -211,6 +252,11 @@ export class DBService {
   }
   
   async loadGameSettings(): Promise<GameSettings | null> {
+    // Return null if not in browser
+    if (!this.isBrowser) {
+      return null;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -239,6 +285,12 @@ export class DBService {
   }
   
   async saveWorldInfo(info: any): Promise<void> {
+    // Return early if not in browser
+    if (!this.isBrowser) {
+      console.warn('Database operations not available in server environment');
+      return;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -264,6 +316,11 @@ export class DBService {
   }
   
   async loadWorldInfo(): Promise<any> {
+    // Return null if not in browser
+    if (!this.isBrowser) {
+      return null;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -292,6 +349,12 @@ export class DBService {
   }
   
   async clearAllData(): Promise<void> {
+    // Return early if not in browser
+    if (!this.isBrowser) {
+      console.warn('Database operations not available in server environment');
+      return;
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {
@@ -342,6 +405,11 @@ export class DBService {
   }
   
   async getChunkIds(): Promise<string[]> {
+    // Return empty array if not in browser
+    if (!this.isBrowser) {
+      return [];
+    }
+    
     await this.initDatabase();
     
     return new Promise((resolve, reject) => {

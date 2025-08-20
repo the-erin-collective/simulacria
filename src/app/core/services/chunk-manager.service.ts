@@ -125,7 +125,7 @@ export class ChunkManagerService {
     
     // If not in memory and world is loaded, try to load from database
     if (!chunk && this.worldLoaded) {
-      chunk = await this.dbService.loadChunk(coords.chunkX, coords.chunkY, coords.chunkZ!);
+      chunk = await this.dbService.loadChunk(coords.chunkX, coords.chunkY, coords.chunkZ!) || undefined;
       if (chunk) {
         this.chunks.set(key, chunk);
       }

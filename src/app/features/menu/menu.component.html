@@ -11,6 +11,11 @@
         New World
       </button>
       
+      <button class="menu-btn secondary" (click)="loadWorld()">
+        <span class="btn-icon">📁</span>
+        Load World
+      </button>
+      
       <button class="menu-btn secondary" (click)="showSettings()">
         <span class="btn-icon">⚙️</span>
         Settings
@@ -25,6 +30,98 @@
     <div class="game-info">
       <p>Experience unique worlds generated through evolutionary algorithms.</p>
       <p>Every world is different. No seeds, just pure evolution.</p>
+    </div>
+  </div>
+</div>
+
+<!-- World Loading Modal -->
+<div class="modal-overlay" *ngIf="showLoadWorldModal" (click)="closeLoadWorld()">
+  <div class="load-world-modal" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h2>Load World</h2>
+      <button class="close-btn" (click)="closeLoadWorld()">&times;</button>
+    </div>
+    <div class="modal-content">
+      <div class="world-list" *ngIf="availableWorlds.length > 0">
+        <div class="world-item" *ngFor="let world of availableWorlds" (click)="selectWorld(world)" 
+             [class.selected]="selectedWorldId === world.id">
+          <div class="world-info">
+            <h3>{{world.name || 'Unnamed World'}}</h3>
+            <div class="world-meta">
+              <span class="world-date">📅 Created: {{formatDate(world.created)}}</span>
+              <span class="world-date" *ngIf="world.lastPlayed">🕰️ Last played: {{formatDate(world.lastPlayed)}}</span>
+            </div>
+          </div>
+          <div class="world-actions">
+            <button class="action-btn load-btn" (click)="loadSelectedWorld(world); $event.stopPropagation()" 
+                    [disabled]="loading">
+              <span *ngIf="!loading">🎧 Load</span>
+              <span *ngIf="loading && selectedWorldId === world.id">Loading...</span>
+            </button>
+            <button class="action-btn delete-btn" (click)="deleteWorld(world); $event.stopPropagation()" 
+                    [disabled]="loading">
+              🗑️ Delete
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="no-worlds" *ngIf="availableWorlds.length === 0 && !loading">
+        <p>🌍 No saved worlds found.</p>
+        <p>Create a new world to get started!</p>
+      </div>
+      <div class="loading-worlds" *ngIf="loading && availableWorlds.length === 0">
+        <p>Loading worlds...</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="menu-btn secondary" (click)="closeLoadWorld()" [disabled]="loading">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<app-settings-modal 
+  [visible]="showSettingsModal"
+  (close)="closeSettings()"
+  (saveSettings)="onSettingsSaved($event)">
+</app-settings-modal>
+
+<!-- About Modal -->
+<div class="modal-overlay" *ngIf="showAboutModal" (click)="closeAbout()">
+  <div class="about-modal" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h2>About CraftEvolution</h2>
+      <button class="close-btn" (click)="closeAbout()">&times;</button>
+    </div>
+    <div class="modal-content">
+      <div class="about-section">
+        <h3>🌍 Evolutionary Terrain Generation</h3>
+        <p>CraftEvolution is a unique Minecraft-inspired game that uses evolutionary algorithms to generate endless worlds. Each world is completely unique and emerges through natural digital evolution.</p>
+      </div>
+      
+      <div class="about-section">
+        <h3>🎮 Features</h3>
+        <ul>
+          <li>Procedural world generation with evolution</li>
+          <li>Block-based building and mining</li>
+          <li>Real-time world persistence</li>
+          <li>Modern Angular + BabylonJS engine</li>
+          <li>Responsive design for all devices</li>
+        </ul>
+      </div>
+      
+      <div class="about-section">
+        <h3>🔧 Technology</h3>
+        <p>Built with Angular 20, BabylonJS 3D engine, NgRx state management, and IndexedDB for local storage. Features zoneless change detection for optimal performance.</p>
+      </div>
+      
+      <div class="about-section">
+        <h3>💡 Version</h3>
+        <p>CraftEvolution v2.0 - Game Improvement Edition</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="menu-btn secondary" (click)="closeAbout()">Close</button>
     </div>
   </div>
 </div>

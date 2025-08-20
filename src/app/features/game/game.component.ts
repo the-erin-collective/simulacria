@@ -35,6 +35,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   private subscriptions = new Subscription();
   private gameLoop?: number;
   private lastFrameTime = 0;
+  private boundKeyDownHandler?: (event: KeyboardEvent) => void;
   
   visibleBlocks$: Observable<Map<string, Block>>;
   playerPosition$: Observable<Vector3>;
@@ -128,6 +129,12 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     if (this.saveInterval) {
       clearInterval(this.saveInterval);
     }
+    
+    // Clean up event listeners with the stored reference
+    if (this.boundKeyDownHandler) {
+      document.removeEventListener('keydown', this.boundKeyDownHandler, { capture: true });
+    }
+    
     this.mouseControlService.dispose();
     this.babylonService.dispose();
     
@@ -143,51 +150,129 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     
     if (worldLoaded) {
       console.log('Found existing world, loading...');
-      // If a world exists, load player position from database
+      
+      // Load player position from database
       const playerState = await this.dbService.loadPlayerState();
+      let spawnPosition: Vector3;
       
       if (playerState && playerState.position) {
         console.log(`Loaded player position: (${playerState.position.x}, ${playerState.position.y}, ${playerState.position.z})`);
-        this.store.dispatch(updatePlayerPosition({ position: playerState.position }));
+        spawnPosition = playerState.position;
       } else {
-        // If no player position, find a safe spawn
-        const startPosition = await this.playerSpawningService.findSafeSpawnPosition();
-        this.store.dispatch(updatePlayerPosition({ position: startPosition }));
+        // If no player position saved, find a new spawn position
+        console.log('No saved player position, finding new spawn...');
+        spawnPosition = await this.findSpawnPositionForExistingWorld();
       }
       
-      // Load chunks around player
-      const playerPosition = this.babylonService.getCameraPosition();
-      await this.chunkManagerService.loadChunksAroundPlayer(playerPosition.x, playerPosition.y, playerPosition.z);
+      // Set player position
+      this.store.dispatch(updatePlayerPosition({ position: spawnPosition }));
       
-      // Get all blocks in render distance
-      const blocks = await this.chunkManagerService.getVisibleBlocks(
-        playerPosition.x, playerPosition.y, playerPosition.z
-      );
-      
+      // Load chunks around player and get visible blocks
+      await this.chunkManagerService.loadChunksAroundPlayer(spawnPosition.x, spawnPosition.y, spawnPosition.z);
+      const blocks = await this.chunkManagerService.getVisibleBlocks(spawnPosition.x, spawnPosition.y, spawnPosition.z);
       this.store.dispatch(worldGenerated({ blocks }));
     } else {
       console.log('No existing world found, generating new world...');
-      // Create a new world
-      await this.chunkManagerService.createNewWorld();
-      
-      // Find a safe spawn position on the surface
-      const startPosition = await this.playerSpawningService.findSafeSpawnPosition();
-      
-      this.store.dispatch(generateWorld({ startPosition, generationLimit: GENERATION_LIMIT }));
-      
-      // Generate blocks using terrain service
-      const blocks = this.terrainService.generateWorld(startPosition, GENERATION_LIMIT);
-      this.store.dispatch(worldGenerated({ blocks }));
-      
-      // Set initial player position at the spawn point
-      this.store.dispatch(updatePlayerPosition({ position: startPosition }));
-      
-      // Import generated world into chunk-based storage
-      await this.chunkManagerService.importFromFlatWorld(blocks);
+      await this.generateNewWorld();
     }
     
     // Setup auto-save interval
     this.setupAutoSave();
+  }
+  
+  private async generateNewWorld(): Promise<void> {
+    // Create a new world
+    await this.chunkManagerService.createNewWorld();
+    
+    // Generate terrain using terrain service
+    const centerPosition = { x: 0, y: 0, z: 10 }; // Start generation at a reasonable height
+    const generatedBlocks = this.terrainService.generateWorld(centerPosition, GENERATION_LIMIT);
+    
+    console.log(`Generated ${generatedBlocks.size} blocks`);
+    
+    // Import generated world into chunk-based storage
+    await this.chunkManagerService.importFromFlatWorld(generatedBlocks);
+    
+    // Dispatch the generated blocks to the store immediately
+    this.store.dispatch(worldGenerated({ blocks: generatedBlocks }));
+    
+    // Wait for the store to update and ensure the blocks are available
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Now find a safe spawn position with the world data available
+    console.log('Finding spawn position in generated world...');
+    const startPosition = await this.findSafeSpawnPosition(generatedBlocks);
+    console.log(`Using spawn position: (${startPosition.x}, ${startPosition.y}, ${startPosition.z})`);
+    
+    // Set initial player position
+    this.store.dispatch(updatePlayerPosition({ position: startPosition }));
+    
+    // Load chunks around the spawn position
+    await this.chunkManagerService.loadChunksAroundPlayer(startPosition.x, startPosition.y, startPosition.z);
+  }
+  
+  private async findSpawnPositionForExistingWorld(): Promise<Vector3> {
+    // For existing worlds, try to find a spawn near origin
+    const testPosition = await this.playerSpawningService.findSafeSpawnPosition();
+    return testPosition;
+  }
+  
+  // Find a safe spawn position using the generated world blocks directly
+  private async findSafeSpawnPosition(worldBlocks: Map<string, Block>): Promise<Vector3> {
+    console.log('Finding safe spawn position from generated blocks...');
+    
+    // Search in a spiral pattern around origin for a safe spawn
+    const searchRadius = 20;
+    const maxHeight = 50;
+    const minHeight = -10;
+
+    for (let radius = 0; radius <= searchRadius; radius++) {
+      for (let x = -radius; x <= radius; x++) {
+        for (let y = -radius; y <= radius; y++) {
+          // Only check the perimeter of the current radius
+          if (Math.abs(x) !== radius && Math.abs(y) !== radius && radius > 0) continue;
+
+          const spawnPos = this.findSurfaceAtPosition(x, y, maxHeight, minHeight, worldBlocks);
+          if (spawnPos) {
+            console.log(`Found safe spawn at: (${spawnPos.x}, ${spawnPos.y}, ${spawnPos.z})`);
+            return spawnPos;
+          }
+        }
+      }
+    }
+
+    console.warn('No safe spawn found using search, using fallback position');
+    // Fallback: spawn high above ground
+    return { x: 0, y: 0, z: 20 };
+  }
+  
+  // Find surface at a specific position using block data directly
+  private findSurfaceAtPosition(x: number, y: number, maxZ: number, minZ: number, worldBlocks: Map<string, Block>): Vector3 | null {
+    // Start from the top and scan downward
+    for (let z = maxZ; z >= minZ; z--) {
+      const currentKey = `${x},${y},${z}`;
+      const aboveKey = `${x},${y},${z + 1}`;
+      const aboveAboveKey = `${x},${y},${z + 2}`;
+      
+      const blockAtCurrentZ = worldBlocks.get(currentKey);
+      const blockAboveCurrentZ = worldBlocks.get(aboveKey);
+      const blockAboveAboveCurrentZ = worldBlocks.get(aboveAboveKey);
+      
+      // Check if we found a solid block with 2 air blocks above it
+      const currentIsSolid = blockAtCurrentZ && 
+                            blockAtCurrentZ.metadata.blockType !== BlockType.AIR && 
+                            blockAtCurrentZ.metadata.blockType !== BlockType.WATER;
+      const aboveIsAir = !blockAboveCurrentZ || blockAboveCurrentZ.metadata.blockType === BlockType.AIR;
+      const aboveAboveIsAir = !blockAboveAboveCurrentZ || blockAboveAboveCurrentZ.metadata.blockType === BlockType.AIR;
+      
+      if (currentIsSolid && aboveIsAir && aboveAboveIsAir) {
+        const spawnZ = z + 1.5; // Spawn 1.5 blocks above the solid surface
+        console.log(`Found valid surface at (${x}, ${y}, ${spawnZ})`);
+        return { x, y, z: spawnZ };
+      }
+    }
+
+    return null;
   }
 
   private startGameLoop(): void {
@@ -231,10 +316,11 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
           // Save player state to database
           this.dbService.savePlayerState({
             position,
+            rotation: { x: 0, y: 0, z: 0 }, // Default rotation
             inventory: toolbarItems || [],
             selectedSlot: this.selectedSlot,
             health: 10, // Default full health
-            lastSaved: now
+            maxHealth: 10
           });
         });
       });
@@ -244,11 +330,22 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   private setupInputHandlers(): void {
     const canvas = this.canvasRef.nativeElement;
     
-    // Initialize mouse control service with camera and canvas
-    if (this.babylonService.getCamera()) {
-      this.mouseControlService.initialize(this.babylonService.getCamera(), canvas);
-      this.mouseControlService.setMouseSensitivity(this.settings.mouseSensitivity);
-    }
+    // Set mouse sensitivity in babylon service (controls are now handled there)
+    this.babylonService.setMouseSensitivity(this.settings.mouseSensitivity);
+    
+    // Remove any existing event listeners first
+    document.removeEventListener('keydown', this.handleKeyDown);
+    
+    // Add global ESC key handler for UI (using capture phase to intercept early)
+    const boundKeyDownHandler = this.handleKeyDown.bind(this);
+    document.addEventListener('keydown', boundKeyDownHandler, { capture: true });
+    
+    // Store reference for cleanup
+    this.boundKeyDownHandler = boundKeyDownHandler;
+    
+    // Focus the canvas to ensure it can receive keyboard events
+    canvas.setAttribute('tabindex', '0');
+    canvas.focus();
     
     // Mouse click for block breaking
     canvas.addEventListener('mousedown', (event) => {
@@ -289,34 +386,6 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
         }).unsubscribe();
       }
     });
-    
-    // ESC key for settings
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        // Toggle settings modal instead of navigating back
-        event.preventDefault();
-        this.toggleSettings();
-        console.log('ESC pressed, toggling settings:', this.showSettings);
-      }
-    });
-    
-    // Number keys for hotbar selection
-    document.addEventListener('keydown', (event) => {
-      const key = parseInt(event.key);
-      if (key >= 1 && key <= 9) {
-        const slotIndex = key - 1;
-        this.selectedSlot = slotIndex;
-        this.gameMechanics.selectHotbarSlot(slotIndex);
-      }
-    });
-    
-    // Tab key for inventory
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Tab') {
-        event.preventDefault();
-        this.showInventory = !this.showInventory;
-      }
-    });
   }
 
   private calculatePlacementPosition(targetBlock: Vector3): Vector3 {
@@ -326,6 +395,35 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       y: targetBlock.y,
       z: targetBlock.z + 1
     };
+  }
+  
+  private handleKeyDown(event: KeyboardEvent): void {
+    // Handle ESC key for settings modal
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      
+      console.log('ESC pressed, current showSettings:', this.showSettings);
+      this.toggleSettings();
+      return;
+    }
+    
+    // Handle number keys for hotbar selection
+    const key = parseInt(event.key);
+    if (key >= 1 && key <= 9) {
+      const slotIndex = key - 1;
+      this.selectedSlot = slotIndex;
+      this.gameMechanics.selectHotbarSlot(slotIndex);
+      return;
+    }
+    
+    // Handle Tab key for inventory
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      this.showInventory = !this.showInventory;
+      return;
+    }
   }
 
   onInventorySlotSelected(slotIndex: number): void {
@@ -375,7 +473,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       
       // Apply settings to services
       this.chunkManagerService.setRenderDistance(this.settings.renderDistance);
-      this.mouseControlService.setMouseSensitivity(this.settings.mouseSensitivity);
+      this.babylonService.setMouseSensitivity(this.settings.mouseSensitivity);
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
@@ -396,16 +494,22 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
   
   toggleSettings(): void {
+    console.log('toggleSettings called, current state:', this.showSettings);
     this.showSettings = !this.showSettings;
     
-    // Pause game when settings are open
     if (this.showSettings) {
-      // Release pointer lock when settings open
+      // Settings opened - release pointer lock and pause game
+      console.log('Opening settings, releasing pointer lock');
       this.mouseControlService.exitPointerLock();
     } else {
-      // Re-request pointer lock when settings close
-      this.mouseControlService.requestPointerLock();
+      // Settings closed - request pointer lock and resume game
+      console.log('Closing settings, requesting pointer lock');
+      setTimeout(() => {
+        this.mouseControlService.requestPointerLock();
+      }, 100); // Small delay to ensure the modal is fully hidden
     }
+    
+    console.log('Settings toggled to:', this.showSettings);
   }
   
   closeSettings(): void {
@@ -417,7 +521,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     this.settings = newSettings;
     
     // Apply settings to services
-    this.mouseControlService.setMouseSensitivity(this.settings.mouseSensitivity);
+    this.babylonService.setMouseSensitivity(this.settings.mouseSensitivity);
     this.chunkManagerService.setRenderDistance(this.settings.renderDistance);
     
     // Update auto-save interval
@@ -434,3 +538,4 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       this.router.navigate(['/']);
     });
   }
+}

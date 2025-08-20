@@ -4,7 +4,8 @@ import { provideStore } from '@ngrx/store';
 import { provideEffects } from '@ngrx/effects';
 import { provideStoreDevtools } from '@ngrx/store-devtools';
 import { withComponentInputBinding } from '@angular/router';
-import { provideZoneChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection } from '@angular/core';
+import { provideBrowserGlobalErrorListeners } from '@angular/core';
 
 import { routes } from './app.routes';
 import { provideClientHydration } from '@angular/platform-browser';
@@ -21,6 +22,8 @@ export const appConfig: ApplicationConfig = {
       logOnly: !isDevMode() 
     }),
     // Enable zoneless mode in Angular 20
-    provideZoneChangeDetection({ runCoalescing: true, eventCoalescing: true })
+    provideZonelessChangeDetection(),
+    // Provide browser global error listeners for better error handling
+    provideBrowserGlobalErrorListeners()
   ]
 };

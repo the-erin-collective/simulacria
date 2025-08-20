@@ -13,13 +13,11 @@ export class MouseControlService {
   private maxVerticalAngle = Math.PI / 2 - 0.1;
   private boundMouseMoveHandler: (event: MouseEvent) => void;
   private boundPointerLockChangeHandler: () => void;
-  private boundKeyDownHandler: (event: KeyboardEvent) => void;
 
   constructor() {
     // Bind event handlers to maintain proper 'this' context
     this.boundMouseMoveHandler = this.handleMouseMovement.bind(this);
     this.boundPointerLockChangeHandler = this.handlePointerLockChange.bind(this);
-    this.boundKeyDownHandler = this.handleKeyDown.bind(this);
   }
 
   initialize(camera: UniversalCamera, canvas: HTMLCanvasElement): void {
@@ -29,10 +27,14 @@ export class MouseControlService {
     // First remove any existing event listeners
     this.cleanup();
     
+    // Remove BabylonJS default mouse controls to avoid conflicts
+    this.camera.inputs.removeByType('FreeCameraMouseInput');
+    this.camera.inputs.removeByType('FreeCameraTouchInput');
+    
     // Then set up the new controls
     this.setupMouseControls();
     
-    console.log('Mouse control service initialized with camera:', camera);
+    console.log('Mouse control service initialized with camera and canvas');
   }
 
   private setupMouseControls(): void {
@@ -41,17 +43,18 @@ export class MouseControlService {
       return;
     }
 
-    // Remove BabylonJS default mouse controls
-    this.camera.inputs.removeByType('FreeCameraMouseInput');
-    this.camera.inputs.removeByType('FreeCameraTouchInput');
-
     // Request pointer lock on canvas click
-    this.canvas.addEventListener('click', this.requestPointerLock.bind(this));
+    this.canvas.addEventListener('click', () => {
+      console.log('Canvas clicked, requesting pointer lock');
+      this.requestPointerLock();
+    });
 
     // Add event listeners with bound handlers
     document.addEventListener('pointerlockchange', this.boundPointerLockChangeHandler);
     document.addEventListener('mousemove', this.boundMouseMoveHandler);
-    document.addEventListener('keydown', this.boundKeyDownHandler);
+    
+    // Set initial cursor style
+    this.canvas.style.cursor = 'crosshair';
     
     console.log('Mouse controls setup complete');
   }
@@ -68,14 +71,20 @@ export class MouseControlService {
     }
   }
 
-  private handleKeyDown(event: KeyboardEvent): void {
-    // Only exit pointer lock on ESC if we're handling it here (game should handle ESC for settings)
-    if (event.key === 'Escape' && this.isPointerLocked) {
-      // Don't exit pointer lock from here anymore
-      // This is now handled by the game component
+  private cleanup(): void {
+    // Clean up any existing event listeners
+    document.removeEventListener('mousemove', this.boundMouseMoveHandler);
+    document.removeEventListener('pointerlockchange', this.boundPointerLockChangeHandler);
+    
+    if (this.canvas) {
+      // Remove click listeners (we'll add a new one)
+      this.canvas.removeEventListener('click', this.requestPointerLock);
+      
+      // Reset cursor
+      this.canvas.style.cursor = 'default';
     }
   }
-
+  
   requestPointerLock(): void {
     if (!this.canvas) {
       console.error('Cannot request pointer lock: canvas is missing');
@@ -134,17 +143,6 @@ export class MouseControlService {
 
   isMouseLocked(): boolean {
     return this.isPointerLocked;
-  }
-
-  private cleanup(): void {
-    // Clean up any existing event listeners
-    document.removeEventListener('mousemove', this.boundMouseMoveHandler);
-    document.removeEventListener('pointerlockchange', this.boundPointerLockChangeHandler);
-    document.removeEventListener('keydown', this.boundKeyDownHandler);
-    
-    if (this.canvas) {
-      this.canvas.removeEventListener('click', this.requestPointerLock);
-    }
   }
 
   dispose(): void {

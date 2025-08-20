@@ -15,7 +15,9 @@ import {
   Ray,
   RayHelper,
   PickingInfo,
-  AbstractMesh
+  AbstractMesh,
+  KeyboardEventTypes,
+  PointerEventTypes
 } from '@babylonjs/core';
 import { Block, BlockType, Vector3 } from '../../shared/models/block.model';
 import '@babylonjs/loaders';
@@ -29,8 +31,11 @@ export class BabylonService {
   private camera!: UniversalCamera;
   private light!: HemisphericLight;
   private blockMeshes = new Map<string, AbstractMesh>();
-  private masterCube!: Mesh;
+  private masterMeshes = new Map<BlockType, Mesh>();
   private materials = new Map<BlockType, StandardMaterial>();
+  private inputDirection = new BVector3(0, 0, 0);
+  private moveSpeed = 0.1;
+  private mouseSensitivity = 0.002;
 
   constructor() {}
 
@@ -45,14 +50,17 @@ export class BabylonService {
     // Setup camera (first-person)
     this.setupCamera();
     
+    // Attach camera controls to canvas
+    this.attachCameraControls(canvas.nativeElement);
+    
     // Setup lighting
     this.setupLighting();
     
     // Setup materials
     this.setupMaterials();
     
-    // Create master cube for instancing
-    this.createMasterCube();
+    // Create master meshes for each block type
+    this.createMasterMeshes();
     
     // Start render loop
     this.engine.runRenderLoop(() => {
@@ -63,21 +71,30 @@ export class BabylonService {
     window.addEventListener('resize', () => {
       this.engine.resize();
     });
+    
+    console.log('BabylonJS engine initialized successfully');
   }
 
   private setupCamera(): void {
     this.camera = new UniversalCamera('camera', new BVector3(0, 0, 5), this.scene);
     this.camera.setTarget(BVector3.Zero());
     
-    // WASD movement
-    this.camera.keysUp.push(87); // W
-    this.camera.keysDown.push(83); // S
-    this.camera.keysLeft.push(65); // A
-    this.camera.keysRight.push(68); // D
+    // Remove default BabylonJS input controls to avoid conflicts
+    this.camera.inputs.clear();
     
     // Speed settings
-    this.camera.speed = 0.5;
+    this.camera.speed = 0.2;
     this.camera.angularSensibility = 2000;
+    
+    console.log('Camera setup complete with custom controls');
+  }
+  
+  private attachCameraControls(canvas: HTMLCanvasElement): void {
+    // Setup custom input handling using BabylonJS observables (like the playground example)
+    this.setupKeyboardControls();
+    this.setupMouseControls();
+    
+    console.log('Custom camera controls attached');
   }
 
   private setupLighting(): void {
@@ -123,9 +140,16 @@ export class BabylonService {
     this.materials.set(BlockType.LEAVES, leavesMaterial);
   }
 
-  private createMasterCube(): void {
-    this.masterCube = MeshBuilder.CreateBox('masterCube', { size: 1 }, this.scene);
-    this.masterCube.isVisible = false; // Hidden master for instancing
+  private createMasterMeshes(): void {
+    // Create a master mesh for each block type with its material
+    for (const [blockType, material] of this.materials) {
+      if (blockType === BlockType.AIR) continue; // Skip air blocks
+      
+      const masterMesh = MeshBuilder.CreateBox(`master_${blockType}`, { size: 1 }, this.scene);
+      masterMesh.material = material;
+      masterMesh.isVisible = false; // Hidden master for instancing
+      this.masterMeshes.set(blockType, masterMesh);
+    }
   }
 
   updateWorldBlocks(blocks: Map<string, Block>): void {
@@ -141,17 +165,22 @@ export class BabylonService {
         continue; // Skip air blocks
       }
 
-      const blockMesh = this.masterCube.createInstance(`block_${key}`);
+      const masterMesh = this.masterMeshes.get(block.metadata.blockType);
+      if (!masterMesh) {
+        console.warn(`No master mesh found for block type: ${block.metadata.blockType}`);
+        continue;
+      }
+      
+      // Create instance from master mesh (material is inherited automatically)
+      const blockMesh = masterMesh.createInstance(`block_${key}`);
       blockMesh.position = new BVector3(
         block.position.x,
         block.position.y,
         block.position.z
       );
-
-      const material = this.materials.get(block.metadata.blockType);
-      if (material) {
-        blockMesh.material = material;
-      }
+      
+      // IMPORTANT: Do NOT set material on instances - they inherit from master
+      // Setting material on instances will cause "Setting material on an instanced mesh" warnings
 
       this.blockMeshes.set(key, blockMesh);
     }
@@ -243,13 +272,17 @@ export class BabylonService {
       return;
     }
 
-    const blockMesh = this.masterCube.createInstance(`block_${key}`);
+    const masterMesh = this.masterMeshes.get(blockType);
+    if (!masterMesh) {
+      console.warn(`No master mesh found for block type: ${blockType}`);
+      return;
+    }
+    
+    // Create instance from master mesh (material is inherited automatically)
+    const blockMesh = masterMesh.createInstance(`block_${key}`);
     blockMesh.position = new BVector3(position.x, position.y, position.z);
     
-    const material = this.materials.get(blockType);
-    if (material) {
-      blockMesh.material = material;
-    }
+    // IMPORTANT: Do NOT set material on instances - they inherit from master
     
     this.blockMeshes.set(key, blockMesh);
   }
@@ -258,6 +291,15 @@ export class BabylonService {
     if (this.engine) {
       this.engine.dispose();
     }
+  }
+  
+  setMouseSensitivity(sensitivity: number): void {
+    this.mouseSensitivity = Math.max(0.0001, Math.min(0.01, sensitivity));
+    console.log('Mouse sensitivity updated to:', this.mouseSensitivity);
+  }
+  
+  getMouseSensitivity(): number {
+    return this.mouseSensitivity;
   }
 
   getCamera(): UniversalCamera {
@@ -274,5 +316,99 @@ export class BabylonService {
 
   getRenderedBlocksCount(): number {
     return this.blockMeshes.size;
+  }
+  
+  private setupKeyboardControls(): void {
+    // Keyboard input handling based on playground example
+    this.scene.onKeyboardObservable.add((kbInfo) => {
+      switch (kbInfo.type) {
+        case KeyboardEventTypes.KEYDOWN:
+          if (kbInfo.event.key === 'w' || kbInfo.event.key === 'W' || kbInfo.event.key === 'ArrowUp') {
+            this.inputDirection.z = 1;
+          } else if (kbInfo.event.key === 's' || kbInfo.event.key === 'S' || kbInfo.event.key === 'ArrowDown') {
+            this.inputDirection.z = -1;
+          } else if (kbInfo.event.key === 'a' || kbInfo.event.key === 'A' || kbInfo.event.key === 'ArrowLeft') {
+            this.inputDirection.x = -1;
+          } else if (kbInfo.event.key === 'd' || kbInfo.event.key === 'D' || kbInfo.event.key === 'ArrowRight') {
+            this.inputDirection.x = 1;
+          }
+          break;
+        case KeyboardEventTypes.KEYUP:
+          if (kbInfo.event.key === 'w' || kbInfo.event.key === 'W' || kbInfo.event.key === 's' || kbInfo.event.key === 'S' || 
+              kbInfo.event.key === 'ArrowUp' || kbInfo.event.key === 'ArrowDown') {
+            this.inputDirection.z = 0;
+          }
+          if (kbInfo.event.key === 'a' || kbInfo.event.key === 'A' || kbInfo.event.key === 'd' || kbInfo.event.key === 'D' || 
+              kbInfo.event.key === 'ArrowLeft' || kbInfo.event.key === 'ArrowRight') {
+            this.inputDirection.x = 0;
+          }
+          break;
+      }
+    });
+    
+    // Movement update in render loop
+    this.scene.onBeforeRenderObservable.add(() => {
+      this.updateCameraMovement();
+    });
+    
+    console.log('Keyboard controls setup complete');
+  }
+  
+  private setupMouseControls(): void {
+    // Mouse input handling for camera rotation with pointer lock support
+    let isMouseDown = false;
+    
+    this.scene.onPointerObservable.add((pointerInfo) => {
+      switch (pointerInfo.type) {
+        case PointerEventTypes.POINTERDOWN:
+          if (pointerInfo.event.button === 0) { // Left mouse button
+            isMouseDown = true;
+            // Request pointer lock on first click
+            if (document.pointerLockElement !== this.engine.getRenderingCanvas()) {
+              this.engine.getRenderingCanvas()?.requestPointerLock();
+            }
+          }
+          break;
+
+        case PointerEventTypes.POINTERUP:
+          if (pointerInfo.event.button === 0) {
+            isMouseDown = false;
+          }
+          break;
+
+        case PointerEventTypes.POINTERMOVE:
+          // Use pointer lock movement if available, otherwise use drag movement
+          const movementX = pointerInfo.event.movementX || 0;
+          const movementY = pointerInfo.event.movementY || 0;
+          
+          if (document.pointerLockElement === this.engine.getRenderingCanvas() || isMouseDown) {
+            // Apply mouse movement to camera rotation
+            this.camera.rotation.y += movementX * this.mouseSensitivity;
+            this.camera.rotation.x -= movementY * this.mouseSensitivity;
+            
+            // Clamp vertical rotation
+            this.camera.rotation.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, this.camera.rotation.x));
+          }
+          break;
+      }
+    });
+    
+    console.log('Mouse controls setup complete with pointer lock support');
+  }
+  
+  private updateCameraMovement(): void {
+    if (this.inputDirection.length() > 0) {
+      // Calculate movement direction relative to camera rotation
+      const forward = this.camera.getDirection(new BVector3(0, 0, 1));
+      const right = this.camera.getDirection(new BVector3(1, 0, 0));
+      
+      // Calculate movement vector
+      const movement = new BVector3(0, 0, 0);
+      movement.addInPlace(forward.scale(this.inputDirection.z * this.moveSpeed));
+      movement.addInPlace(right.scale(this.inputDirection.x * this.moveSpeed));
+      
+      // Apply movement to camera position
+      this.camera.position.addInPlace(movement);
+    }
   }
 }
