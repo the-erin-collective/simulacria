@@ -36,3 +36,27 @@ export const clearCraftingSlots = createAction('[UI] Clear Crafting Slots');
 export const toggleSettings = createAction('[UI] Toggle Settings');
 export const showSettings = createAction('[UI] Show Settings');
 export const hideSettings = createAction('[UI] Hide Settings');
+
+// Loading actions
+export const startLoading = createAction(
+  '[UI] Start Loading',
+  props<{ 
+    operation: string; 
+    message?: string; 
+    details?: string; 
+    showProgress?: boolean;
+    cancellable?: boolean;
+  }>()
+);
+
+export const updateLoadingProgress = createAction(
+  '[UI] Update Loading Progress',
+  props<{ progress: number; details?: string }>()
+);
+
+export const stopLoading = createAction('[UI] Stop Loading');
+
+export const setLoadingError = createAction(
+  '[UI] Set Loading Error',
+  props<{ error: string }>()
+);

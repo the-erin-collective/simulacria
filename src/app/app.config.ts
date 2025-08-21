@@ -10,13 +10,14 @@ import { provideBrowserGlobalErrorListeners } from '@angular/core';
 import { routes } from './app.routes';
 import { provideClientHydration } from '@angular/platform-browser';
 import { reducers } from './store';
+import { WorldEffects } from './store/world/world.effects';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideRouter(routes, withComponentInputBinding()), 
     provideClientHydration(),
     provideStore(reducers),
-    provideEffects([]),
+    provideEffects([WorldEffects]),
     provideStoreDevtools({ 
       maxAge: 25, 
       logOnly: !isDevMode() 

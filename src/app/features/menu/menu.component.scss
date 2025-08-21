@@ -112,6 +112,16 @@
   &:active {
     transform: translateY(0);
   }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: rgba(255, 255, 255, 0.4) !important;
+    transform: none !important;
+    box-shadow: none !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
 }
 
 .game-info {

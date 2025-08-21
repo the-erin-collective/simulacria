@@ -1,40 +1,78 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { Store } from '@ngrx/store';
+import { Observable, Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import { setGameMode } from '../../store/ui/ui.actions';
 import { SettingsModalComponent } from '../settings/settings-modal.component';
+import { LoadingOverlayComponent } from '../ui/loading-overlay.component';
 import { GameSettings } from '../../shared/models/game.model';
 import { DBService } from '../../core/services/db.service';
+import { WorldService, WorldInfo } from '../../core/services/world.service';
+import * as UISelectors from '../../store/ui/ui.selectors';
 
 @Component({
   selector: 'app-menu',
   standalone: true,
-  imports: [CommonModule, SettingsModalComponent],
+  imports: [CommonModule, SettingsModalComponent, LoadingOverlayComponent],
   templateUrl: './menu.component.html',
   styleUrls: ['./menu.component.scss']
 })
-export class MenuComponent implements OnInit {
+export class MenuComponent implements OnInit, OnDestroy {
   showSettingsModal = false;
   showAboutModal = false;
   showLoadWorldModal = false;
-  availableWorlds: any[] = [];
+  availableWorlds: WorldInfo[] = [];
   selectedWorldId: string | null = null;
-  loading = false;
+  
+  // Loading state observables
+  isLoading$: Observable<boolean>;
+  loadingMessage$: Observable<string | null>;
+  loadingDetails$: Observable<string | null>;
+  loadingProgress$: Observable<number>;
+  showLoadingProgress$: Observable<boolean>;
+  loadingCancellable$: Observable<boolean>;
+  
+  private destroy$ = new Subject<void>();
   
   constructor(
     private router: Router,
     private store: Store,
-    private dbService: DBService
-  ) {}
+    private dbService: DBService,
+    private worldService: WorldService
+  ) {
+    // Initialize loading observables
+    this.isLoading$ = this.store.select(UISelectors.selectIsLoading);
+    this.loadingMessage$ = this.store.select(UISelectors.selectLoadingMessage);
+    this.loadingDetails$ = this.store.select(UISelectors.selectLoadingDetails);
+    this.loadingProgress$ = this.store.select(UISelectors.selectLoadingProgress);
+    this.showLoadingProgress$ = this.store.select(UISelectors.selectShowLoadingProgress);
+    this.loadingCancellable$ = this.store.select(UISelectors.selectLoadingCancellable);
+  }
   
   ngOnInit(): void {
     // Component initialization
   }
 
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
   startNewWorld(): void {
-    this.store.dispatch(setGameMode({ mode: 'playing' }));
-    this.router.navigate(['/game']);
+    this.worldService.createNewWorld()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (newWorld) => {
+          console.log('New world created:', newWorld);
+          this.store.dispatch(setGameMode({ mode: 'playing' }));
+          this.router.navigate(['/game']);
+        },
+        error: (error) => {
+          console.error('Failed to create new world:', error);
+        }
+      });
   }
 
   showSettings(): void {
@@ -62,6 +100,13 @@ export class MenuComponent implements OnInit {
     console.log('Settings saved:', settings);
   }
   
+  onReturnToMainMenu(): void {
+    // This method is called when user clicks "Return to Menu" from settings in menu
+    // Since we're already in the menu, just close the settings modal
+    console.log('Return to main menu requested from settings');
+    this.closeSettings();
+  }
+  
   loadWorld(): void {
     console.log('Load World button clicked! Opening load world modal');
     this.showLoadWorldModal = true;
@@ -75,83 +120,73 @@ export class MenuComponent implements OnInit {
   }
   
   async loadAvailableWorlds(): Promise<void> {
-    this.loading = true;
-    try {
-      // For now, we'll simulate available worlds
-      // In a real implementation, this would query the database
-      this.availableWorlds = [
-        {
-          id: '1',
-          name: 'My First World',
-          created: Date.now() - 86400000, // 1 day ago
-          lastPlayed: Date.now() - 3600000 // 1 hour ago
+    this.worldService.loadAvailableWorlds()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (worlds) => {
+          this.availableWorlds = worlds;
+          console.log('Available worlds loaded:', this.availableWorlds);
+        },
+        error: (error) => {
+          console.error('Failed to load available worlds:', error);
+          this.availableWorlds = [];
         }
-      ];
-      
-      console.log('Available worlds loaded:', this.availableWorlds);
-    } catch (error) {
-      console.error('Failed to load available worlds:', error);
-      this.availableWorlds = [];
-    } finally {
-      this.loading = false;
-    }
+      });
   }
   
-  selectWorld(world: any): void {
+  selectWorld(world: WorldInfo): void {
     this.selectedWorldId = world.id;
     console.log('Selected world:', world);
   }
   
-  async loadSelectedWorld(world: any): Promise<void> {
-    if (this.loading) return;
-    
-    this.loading = true;
+  async loadSelectedWorld(world: WorldInfo): Promise<void> {
     this.selectedWorldId = world.id;
     
-    try {
-      console.log('Loading world:', world);
-      
-      // Update last played time
-      world.lastPlayed = Date.now();
-      
-      // Navigate to game
-      this.store.dispatch(setGameMode({ mode: 'playing' }));
-      await this.router.navigate(['/game']);
-      
-      // Close modal
-      this.showLoadWorldModal = false;
-    } catch (error) {
-      console.error('Failed to load world:', error);
-    } finally {
-      this.loading = false;
-    }
+    this.worldService.loadWorld(world.id, world.name)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (loadedWorld) => {
+          console.log('World loaded:', loadedWorld);
+          
+          // Update last played time
+          world.lastPlayed = Date.now();
+          
+          // Navigate to game
+          this.store.dispatch(setGameMode({ mode: 'playing' }));
+          this.router.navigate(['/game']);
+          
+          // Close modal
+          this.showLoadWorldModal = false;
+        },
+        error: (error) => {
+          console.error('Failed to load world:', error);
+          this.selectedWorldId = null;
+        }
+      });
   }
   
-  async deleteWorld(world: any): Promise<void> {
-    if (this.loading) return;
-    
+  async deleteWorld(world: WorldInfo): Promise<void> {
     const confirmDelete = confirm(`Are you sure you want to delete "${world.name || 'Unnamed World'}"? This action cannot be undone.`);
     if (!confirmDelete) return;
     
-    this.loading = true;
-    
-    try {
-      console.log('Deleting world:', world);
-      
-      // Remove from available worlds list
-      this.availableWorlds = this.availableWorlds.filter(w => w.id !== world.id);
-      
-      // Clear selection if this world was selected
-      if (this.selectedWorldId === world.id) {
-        this.selectedWorldId = null;
-      }
-      
-      console.log('World deleted successfully');
-    } catch (error) {
-      console.error('Failed to delete world:', error);
-    } finally {
-      this.loading = false;
-    }
+    this.worldService.deleteWorld(world.id, world.name)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: () => {
+          console.log('World deleted successfully');
+          
+          // Remove from available worlds list
+          this.availableWorlds = this.availableWorlds.filter(w => w.id !== world.id);
+          
+          // Clear selection if this world was selected
+          if (this.selectedWorldId === world.id) {
+            this.selectedWorldId = null;
+          }
+        },
+        error: (error) => {
+          console.error('Failed to delete world:', error);
+        }
+      });
   }
   
   formatDate(timestamp: number): string {

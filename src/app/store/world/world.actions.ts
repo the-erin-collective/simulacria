@@ -35,3 +35,51 @@ export const setRenderDistance = createAction(
   '[World] Set Render Distance',
   props<{ distance: number }>()
 );
+
+// World loading/creation actions
+export const loadWorld = createAction(
+  '[World] Load World',
+  props<{ worldId: string; worldName: string }>()
+);
+
+export const worldLoaded = createAction(
+  '[World] World Loaded',
+  props<{ worldData: any; worldId: string }>()
+);
+
+export const loadWorldFailed = createAction(
+  '[World] Load World Failed',
+  props<{ error: string }>()
+);
+
+export const createNewWorld = createAction(
+  '[World] Create New World',
+  props<{ worldName?: string; settings?: any }>()
+);
+
+export const newWorldCreated = createAction(
+  '[World] New World Created',
+  props<{ worldId: string; worldName: string }>()
+);
+
+export const createWorldFailed = createAction(
+  '[World] Create World Failed',
+  props<{ error: string }>()
+);
+
+export const loadAvailableWorlds = createAction('[World] Load Available Worlds');
+
+export const availableWorldsLoaded = createAction(
+  '[World] Available Worlds Loaded',
+  props<{ worlds: any[] }>()
+);
+
+export const deleteWorld = createAction(
+  '[World] Delete World',
+  props<{ worldId: string; worldName: string }>()
+);
+
+export const worldDeleted = createAction(
+  '[World] World Deleted',
+  props<{ worldId: string }>()
+);

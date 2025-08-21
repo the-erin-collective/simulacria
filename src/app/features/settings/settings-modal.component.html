@@ -1,6 +1,9 @@
 <div class="settings-modal" *ngIf="visible">
   <div class="settings-content">
-    <h2>Game Settings</h2>
+    <div class="modal-header">
+      <h2>Game Settings</h2>
+      <button class="close-btn" (click)="closeModal()" aria-label="Close Settings">&times;</button>
+    </div>
     
     <div class="settings-group">
       <h3>Display</h3>
@@ -23,7 +26,8 @@
         <input 
           type="checkbox" 
           id="showFPS" 
-          [(ngModel)]="settings.showFPS">
+          [(ngModel)]="settings.showFPS"
+          (change)="autoSaveSettings()">
       </div>
       
       <div class="setting-item">
@@ -31,7 +35,8 @@
         <input 
           type="checkbox" 
           id="showCoordinates" 
-          [(ngModel)]="settings.showCoordinates">
+          [(ngModel)]="settings.showCoordinates"
+          (change)="autoSaveSettings()">
       </div>
       
       <div class="setting-item">
@@ -39,7 +44,8 @@
         <input 
           type="checkbox" 
           id="showDebugInfo" 
-          [(ngModel)]="settings.showDebugInfo">
+          [(ngModel)]="settings.showDebugInfo"
+          (change)="autoSaveSettings()">
       </div>
     </div>
     
@@ -58,6 +64,15 @@
           (input)="updateMouseSensitivity()">
         <span>{{ (settings.mouseSensitivity * 1000).toFixed(1) }}</span>
       </div>
+      
+      <div class="setting-item">
+        <label for="invertMouseY">Invert Mouse Y-Axis:</label>
+        <input 
+          type="checkbox" 
+          id="invertMouseY" 
+          [(ngModel)]="settings.invertMouseY"
+          (change)="updateMouseYInversion()">
+      </div>
     </div>
     
     <div class="settings-group">
@@ -71,7 +86,8 @@
           min="0" 
           max="1" 
           step="0.1" 
-          [(ngModel)]="settings.soundVolume">
+          [(ngModel)]="settings.soundVolume"
+          (input)="autoSaveSettings()">
         <span>{{ Math.round(settings.soundVolume * 100) }}%</span>
       </div>
       
@@ -83,7 +99,8 @@
           min="0" 
           max="1" 
           step="0.1" 
-          [(ngModel)]="settings.musicVolume">
+          [(ngModel)]="settings.musicVolume"
+          (input)="autoSaveSettings()">
         <span>{{ Math.round(settings.musicVolume * 100) }}%</span>
       </div>
     </div>

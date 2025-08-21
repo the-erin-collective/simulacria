@@ -24,6 +24,17 @@ export interface WorldState {
   };
 }
 
+export interface LoadingState {
+  isLoading: boolean;
+  operation: string | null;
+  message: string | null;
+  details: string | null;
+  progress: number; // -1 means no progress, 0-100 for percentage
+  showProgress: boolean;
+  cancellable: boolean;
+  error: string | null;
+}
+
 export interface UIState {
   gameMode: GameMode;
   showInventory: boolean;
@@ -33,6 +44,7 @@ export interface UIState {
   breakingProgress: number;
   isBreaking: boolean;
   selectedCraftingSlots: (string | null)[][];
+  loading: LoadingState;
 }
 
 export interface PerformanceState {
@@ -45,6 +57,7 @@ export interface PerformanceState {
 export interface GameSettings {
   id?: string;
   mouseSensitivity: number;
+  invertMouseY: boolean;
   renderDistance: number;
   soundVolume: number;
   musicVolume: number;
@@ -57,6 +70,7 @@ export interface GameSettings {
 // Default settings
 export const DEFAULT_SETTINGS: GameSettings = {
   mouseSensitivity: 0.002,
+  invertMouseY: false, // Default to NON-inverted mouse
   renderDistance: 3,
   soundVolume: 0.5,
   musicVolume: 0.3,

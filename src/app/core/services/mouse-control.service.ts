@@ -9,6 +9,7 @@ export class MouseControlService {
   private canvas?: HTMLCanvasElement;
   private isPointerLocked = false;
   private mouseSensitivity = 0.002;
+  private invertMouseY = false; // Default to NON-inverted
   private minVerticalAngle = -Math.PI / 2 + 0.1;
   private maxVerticalAngle = Math.PI / 2 - 0.1;
   private boundMouseMoveHandler: (event: MouseEvent) => void;
@@ -115,7 +116,13 @@ export class MouseControlService {
 
     // Update camera rotation
     this.camera.rotation.y += deltaX; // Horizontal (yaw)
-    this.camera.rotation.x -= deltaY; // Vertical (pitch) - inverted for natural feel
+    
+    // Vertical (pitch) - apply inversion setting
+    if (this.invertMouseY) {
+      this.camera.rotation.x += deltaY; // Inverted
+    } else {
+      this.camera.rotation.x -= deltaY; // Non-inverted (natural feel)
+    }
 
     // Clamp vertical rotation to prevent over-rotation
     this.camera.rotation.x = Math.max(
@@ -139,6 +146,15 @@ export class MouseControlService {
 
   getMouseSensitivity(): number {
     return this.mouseSensitivity;
+  }
+
+  setMouseYInversion(invert: boolean): void {
+    this.invertMouseY = invert;
+    console.log('Mouse Y-axis inversion set to:', this.invertMouseY);
+  }
+
+  getMouseYInversion(): boolean {
+    return this.invertMouseY;
   }
 
   isMouseLocked(): boolean {

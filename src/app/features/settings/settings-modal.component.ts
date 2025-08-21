@@ -21,6 +21,7 @@ export class SettingsModalComponent implements OnInit, OnDestroy {
   
   settings: GameSettings = { ...DEFAULT_SETTINGS };
   Math = Math; // Make Math available in template
+  private autoSaveTimeout?: ReturnType<typeof setTimeout>;
   
   constructor(
     private mouseControlService: MouseControlService,
@@ -33,6 +34,11 @@ export class SettingsModalComponent implements OnInit, OnDestroy {
   }
   
   ngOnDestroy(): void {
+    // Clear auto-save timeout
+    if (this.autoSaveTimeout) {
+      clearTimeout(this.autoSaveTimeout);
+    }
+    
     // Ensure settings are saved when component is destroyed
     this.saveSettings.emit(this.settings);
   }
@@ -45,8 +51,15 @@ export class SettingsModalComponent implements OnInit, OnDestroy {
         
         // Apply settings to services
         this.updateMouseSensitivity();
+        this.updateMouseYInversion();
         this.updateRenderDistance();
         this.updateAutoSaveInterval();
+        
+        console.log('Settings loaded and applied:', this.settings);
+      } else {
+        // No saved settings found, use defaults and save them
+        console.log('No saved settings found, using defaults');
+        await this.dbService.saveGameSettings(this.settings);
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -55,21 +68,61 @@ export class SettingsModalComponent implements OnInit, OnDestroy {
   
   updateMouseSensitivity(): void {
     this.mouseControlService.setMouseSensitivity(this.settings.mouseSensitivity);
+    // Auto-save settings when changed
+    this.autoSaveSettings();
+  }
+
+  updateMouseYInversion(): void {
+    this.mouseControlService.setMouseYInversion(this.settings.invertMouseY);
+    // Auto-save settings when changed
+    this.autoSaveSettings();
   }
   
   updateRenderDistance(): void {
     this.chunkManagerService.setRenderDistance(this.settings.renderDistance);
+    // Auto-save settings when changed
+    this.autoSaveSettings();
   }
   
   updateAutoSaveInterval(): void {
     this.chunkManagerService.setSaveInterval(this.settings.autoSaveInterval);
+    // Auto-save settings when changed
+    this.autoSaveSettings();
   }
   
-  resetToDefaults(): void {
-    this.settings = { ...DEFAULT_SETTINGS };
-    this.updateMouseSensitivity();
-    this.updateRenderDistance();
-    this.updateAutoSaveInterval();
+  autoSaveSettings(): void {
+    // Debounced auto-save to prevent too frequent saves
+    if (this.autoSaveTimeout) {
+      clearTimeout(this.autoSaveTimeout);
+    }
+    
+    this.autoSaveTimeout = setTimeout(async () => {
+      try {
+        await this.dbService.saveGameSettings(this.settings);
+        console.log('Settings auto-saved');
+      } catch (error) {
+        console.error('Failed to auto-save settings:', error);
+      }
+    }, 1000); // Auto-save after 1 second of no changes
+  }
+  
+  async resetToDefaults(): Promise<void> {
+    try {
+      this.settings = { ...DEFAULT_SETTINGS };
+      
+      // Apply default settings immediately
+      this.updateMouseSensitivity();
+      this.updateMouseYInversion();
+      this.updateRenderDistance();
+      this.updateAutoSaveInterval();
+      
+      // Save default settings to database
+      await this.dbService.saveGameSettings(this.settings);
+      
+      console.log('Settings reset to defaults and saved');
+    } catch (error) {
+      console.error('Failed to save default settings:', error);
+    }
   }
   
   async saveWorld(): Promise<void> {
@@ -78,18 +131,69 @@ export class SettingsModalComponent implements OnInit, OnDestroy {
       await this.dbService.saveGameSettings(this.settings);
       console.log('World and settings saved successfully!');
     } catch (error) {
-      console.error('Failed to save world:', error);
+      console.error('Failed to save world and settings:', error);
+      throw error; // Re-throw to let calling methods handle it
     }
   }
   
   async saveAndClose(): Promise<void> {
-    await this.saveWorld();
-    this.saveSettings.emit(this.settings);
-    this.close.emit();
+    try {
+      // Save settings to database
+      await this.dbService.saveGameSettings(this.settings);
+      
+      // Apply settings immediately
+      this.updateMouseSensitivity();
+      this.updateRenderDistance();
+      this.updateAutoSaveInterval();
+      
+      // Save world if needed
+      await this.saveWorld();
+      
+      // Emit settings to parent component
+      this.saveSettings.emit(this.settings);
+      
+      // Close modal
+      this.close.emit();
+      
+      console.log('Settings saved and modal closed successfully!');
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+      // Still close the modal even if saving failed
+      this.close.emit();
+    }
   }
   
-  returnToMenu(): void {
-    this.saveWorld();
-    this.returnToMainMenu.emit();
+  closeModal(): void {
+    // Close without saving changes (revert to saved settings)
+    this.loadSettings().then(() => {
+      this.close.emit();
+    });
+  }
+  
+  async returnToMenu(): Promise<void> {
+    try {
+      // Save settings to database first
+      await this.dbService.saveGameSettings(this.settings);
+      
+      // Apply settings immediately
+      this.updateMouseSensitivity();
+      this.updateRenderDistance();
+      this.updateAutoSaveInterval();
+      
+      // Save world before returning to menu
+      await this.saveWorld();
+      
+      // Emit settings to parent component
+      this.saveSettings.emit(this.settings);
+      
+      // Emit return to main menu event
+      this.returnToMainMenu.emit();
+      
+      console.log('Settings saved and returning to main menu');
+    } catch (error) {
+      console.error('Failed to save settings before returning to menu:', error);
+      // Still return to menu even if saving failed
+      this.returnToMainMenu.emit();
+    }
   }
 }

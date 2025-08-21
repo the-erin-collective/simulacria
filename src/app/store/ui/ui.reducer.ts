@@ -10,7 +10,17 @@ export const initialUIState: UIState = {
   targetBlock: undefined,
   breakingProgress: 0,
   isBreaking: false,
-  selectedCraftingSlots: Array(3).fill(null).map(() => Array(3).fill(null))
+  selectedCraftingSlots: Array(3).fill(null).map(() => Array(3).fill(null)),
+  loading: {
+    isLoading: false,
+    operation: null,
+    message: null,
+    details: null,
+    progress: -1,
+    showProgress: false,
+    cancellable: false,
+    error: null
+  }
 };
 
 export const uiReducer = createReducer(
@@ -91,5 +101,52 @@ export const uiReducer = createReducer(
   on(UIActions.hideSettings, (state) => ({
     ...state,
     showSettings: false
+  })),
+
+  // Loading actions
+  on(UIActions.startLoading, (state, { operation, message, details, showProgress, cancellable }) => ({
+    ...state,
+    loading: {
+      isLoading: true,
+      operation,
+      message: message || 'Loading...',
+      details: details || null,
+      progress: showProgress ? 0 : -1,
+      showProgress: showProgress || false,
+      cancellable: cancellable || false,
+      error: null
+    }
+  })),
+
+  on(UIActions.updateLoadingProgress, (state, { progress, details }) => ({
+    ...state,
+    loading: {
+      ...state.loading,
+      progress,
+      details: details || state.loading.details
+    }
+  })),
+
+  on(UIActions.stopLoading, (state) => ({
+    ...state,
+    loading: {
+      isLoading: false,
+      operation: null,
+      message: null,
+      details: null,
+      progress: -1,
+      showProgress: false,
+      cancellable: false,
+      error: null
+    }
+  })),
+
+  on(UIActions.setLoadingError, (state, { error }) => ({
+    ...state,
+    loading: {
+      ...state.loading,
+      error,
+      isLoading: false
+    }
   }))
 );

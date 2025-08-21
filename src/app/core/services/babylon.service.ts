@@ -1,4 +1,5 @@
-import { Injectable, ElementRef } from '@angular/core';
+import { Injectable, ElementRef, Inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { 
   Engine, 
   Scene, 
@@ -20,6 +21,7 @@ import {
   PointerEventTypes
 } from '@babylonjs/core';
 import { Block, BlockType, Vector3 } from '../../shared/models/block.model';
+import { PhysicsService } from './physics.service';
 import '@babylonjs/loaders';
 
 @Injectable({
@@ -36,16 +38,32 @@ export class BabylonService {
   private inputDirection = new BVector3(0, 0, 0);
   private moveSpeed = 0.1;
   private mouseSensitivity = 0.002;
+  private jumpPressed = false;
+  private isBrowser: boolean;
 
-  constructor() {}
+  constructor(
+    private physicsService: PhysicsService,
+    @Inject(PLATFORM_ID) private platformId: Object
+  ) {
+    this.isBrowser = isPlatformBrowser(this.platformId);
+  }
 
   async initializeEngine(canvas: ElementRef<HTMLCanvasElement>): Promise<void> {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      console.warn('BabylonJS engine initialization skipped in server environment');
+      return;
+    }
+    
     // Create engine
     this.engine = new Engine(canvas.nativeElement, true);
     
     // Create scene
     this.scene = new Scene(this.engine);
     // this.scene.actionManager = null;
+    
+    // Initialize physics first
+    await this.physicsService.initializePhysics(this.scene);
     
     // Setup camera (first-person)
     this.setupCamera();
@@ -64,6 +82,7 @@ export class BabylonService {
     
     // Start render loop
     this.engine.runRenderLoop(() => {
+      this.updateCameraToFollowPlayer();
       this.scene.render();
     });
     
@@ -72,24 +91,46 @@ export class BabylonService {
       this.engine.resize();
     });
     
-    console.log('BabylonJS engine initialized successfully');
+    console.log('BabylonJS engine with physics initialized successfully');
   }
 
   private setupCamera(): void {
-    this.camera = new UniversalCamera('camera', new BVector3(0, 0, 5), this.scene);
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
+    // Create camera at player head level
+    this.camera = new UniversalCamera('camera', new BVector3(0, 10 + 1.6, 5), this.scene);
     this.camera.setTarget(BVector3.Zero());
     
     // Remove default BabylonJS input controls to avoid conflicts
     this.camera.inputs.clear();
     
-    // Speed settings
+    // Speed settings (not used for physics movement)
     this.camera.speed = 0.2;
     this.camera.angularSensibility = 2000;
     
-    console.log('Camera setup complete with custom controls');
+    console.log('Camera setup complete with physics integration');
+  }
+  
+  private updateCameraToFollowPlayer(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser || !this.camera) {
+      return;
+    }
+    
+    // Update camera position to follow player physics body
+    const playerPosition = this.physicsService.getPlayerPosition();
+    this.camera.position = new BVector3(playerPosition.x, playerPosition.y, playerPosition.z);
   }
   
   private attachCameraControls(canvas: HTMLCanvasElement): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     // Setup custom input handling using BabylonJS observables (like the playground example)
     this.setupKeyboardControls();
     this.setupMouseControls();
@@ -98,11 +139,21 @@ export class BabylonService {
   }
 
   private setupLighting(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     this.light = new HemisphericLight('light', new BVector3(0, 1, 0), this.scene);
     this.light.intensity = 0.7;
   }
 
   private setupMaterials(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     // Air (transparent)
     const airMaterial = new StandardMaterial('air', this.scene);
     airMaterial.alpha = 0;
@@ -141,6 +192,11 @@ export class BabylonService {
   }
 
   private createMasterMeshes(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     // Create a master mesh for each block type with its material
     for (const [blockType, material] of this.materials) {
       if (blockType === BlockType.AIR) continue; // Skip air blocks
@@ -153,13 +209,20 @@ export class BabylonService {
   }
 
   updateWorldBlocks(blocks: Map<string, Block>): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     // Clear existing blocks
     for (const [key, mesh] of this.blockMeshes) {
       mesh.dispose();
     }
     this.blockMeshes.clear();
 
-    // Create new block meshes
+    // Create new block meshes and update physics
+    const blockPositions = new Map<string, Vector3>();
+    
     for (const [key, block] of blocks) {
       if (block.metadata.blockType === BlockType.AIR) {
         continue; // Skip air blocks
@@ -183,43 +246,51 @@ export class BabylonService {
       // Setting material on instances will cause "Setting material on an instanced mesh" warnings
 
       this.blockMeshes.set(key, blockMesh);
+      blockPositions.set(key, block.position);
     }
+    
+    // Update physics bodies for blocks
+    this.physicsService.updateBlocksPhysics(blockPositions);
   }
 
   updatePlayerPosition(position: Vector3, rotation?: Vector3): void {
-    if (this.camera) {
-      this.camera.position = new BVector3(position.x, position.y, position.z);
-      
-      if (rotation) {
-        this.camera.rotation = new BVector3(rotation.x, rotation.y, rotation.z);
-      }
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
+    // Set physics body position
+    this.physicsService.setPlayerPosition(position);
+    
+    // Update camera rotation if provided
+    if (rotation && this.camera) {
+      this.camera.rotation = new BVector3(rotation.x, rotation.y, rotation.z);
     }
   }
 
   getCameraPosition(): Vector3 {
-    if (this.camera) {
-      return {
-        x: this.camera.position.x,
-        y: this.camera.position.y,
-        z: this.camera.position.z
-      };
-    }
-    return { x: 0, y: 0, z: 0 };
+    // Return player physics position (handles SSR gracefully)
+    return this.physicsService.getPlayerPosition();
   }
 
   getCameraRotation(): Vector3 {
-    if (this.camera) {
-      return {
-        x: this.camera.rotation.x,
-        y: this.camera.rotation.y,
-        z: this.camera.rotation.z
-      };
+    // Return default rotation if not in browser (during SSR)
+    if (!this.isBrowser || !this.camera) {
+      return { x: 0, y: 0, z: 0 };
     }
-    return { x: 0, y: 0, z: 0 };
+    
+    return {
+      x: this.camera.rotation.x,
+      y: this.camera.rotation.y,
+      z: this.camera.rotation.z
+    };
   }
 
   getTargetedBlock(): Vector3 | null {
-    if (!this.camera) return null;
+    // Return null if not in browser (during SSR)
+    if (!this.isBrowser || !this.camera) {
+      return null;
+    }
 
     const forward = this.camera.getForwardRay();
     const ray = new Ray(this.camera.position, forward.direction);
@@ -237,6 +308,11 @@ export class BabylonService {
   }
 
   highlightBlock(position: Vector3 | null): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     // Remove previous highlights
     this.blockMeshes.forEach((mesh) => {
       if ('renderOutline' in mesh) {
@@ -256,15 +332,28 @@ export class BabylonService {
   }
 
   removeBlock(position: Vector3): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     const key = `${position.x},${position.y},${position.z}`;
     const blockMesh = this.blockMeshes.get(key);
     if (blockMesh) {
       blockMesh.dispose();
       this.blockMeshes.delete(key);
     }
+    
+    // Remove physics body
+    this.physicsService.removeBlockPhysics(key);
   }
 
   addBlock(position: Vector3, blockType: BlockType): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     const key = `${position.x},${position.y},${position.z}`;
     
     if (blockType === BlockType.AIR) {
@@ -285,9 +374,20 @@ export class BabylonService {
     // IMPORTANT: Do NOT set material on instances - they inherit from master
     
     this.blockMeshes.set(key, blockMesh);
+    
+    // Add physics body
+    this.physicsService.addBlockPhysics(position, key);
   }
 
   dispose(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
+    // Dispose physics first
+    this.physicsService.dispose();
+    
     if (this.engine) {
       this.engine.dispose();
     }
@@ -319,7 +419,12 @@ export class BabylonService {
   }
   
   private setupKeyboardControls(): void {
-    // Keyboard input handling based on playground example
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser || !this.scene) {
+      return;
+    }
+    
+    // Keyboard input handling based on playground example with physics integration
     this.scene.onKeyboardObservable.add((kbInfo) => {
       switch (kbInfo.type) {
         case KeyboardEventTypes.KEYDOWN:
@@ -331,6 +436,8 @@ export class BabylonService {
             this.inputDirection.x = -1;
           } else if (kbInfo.event.key === 'd' || kbInfo.event.key === 'D' || kbInfo.event.key === 'ArrowRight') {
             this.inputDirection.x = 1;
+          } else if (kbInfo.event.key === ' ') { // Spacebar for jump
+            this.jumpPressed = true;
           }
           break;
         case KeyboardEventTypes.KEYUP:
@@ -342,19 +449,27 @@ export class BabylonService {
               kbInfo.event.key === 'ArrowLeft' || kbInfo.event.key === 'ArrowRight') {
             this.inputDirection.x = 0;
           }
+          if (kbInfo.event.key === ' ') { // Spacebar for jump
+            this.jumpPressed = false;
+          }
           break;
       }
     });
     
-    // Movement update in render loop
+    // Movement update in render loop with physics
     this.scene.onBeforeRenderObservable.add(() => {
-      this.updateCameraMovement();
+      this.updatePhysicsMovement();
     });
     
-    console.log('Keyboard controls setup complete');
+    console.log('Keyboard controls setup complete with physics');
   }
   
   private setupMouseControls(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser || !this.scene) {
+      return;
+    }
+    
     // Mouse input handling for camera rotation with pointer lock support
     let isMouseDown = false;
     
@@ -396,19 +511,29 @@ export class BabylonService {
     console.log('Mouse controls setup complete with pointer lock support');
   }
   
-  private updateCameraMovement(): void {
-    if (this.inputDirection.length() > 0) {
+  private updatePhysicsMovement(): void {
+    // Return early if not in browser (during SSR) or camera not available
+    if (!this.isBrowser || !this.camera) {
+      return;
+    }
+    
+    if (this.inputDirection.length() > 0 || this.jumpPressed) {
       // Calculate movement direction relative to camera rotation
       const forward = this.camera.getDirection(new BVector3(0, 0, 1));
       const right = this.camera.getDirection(new BVector3(1, 0, 0));
       
-      // Calculate movement vector
+      // Calculate horizontal movement vector (no Y movement for physics)
       const movement = new BVector3(0, 0, 0);
-      movement.addInPlace(forward.scale(this.inputDirection.z * this.moveSpeed));
-      movement.addInPlace(right.scale(this.inputDirection.x * this.moveSpeed));
+      movement.addInPlace(forward.scale(this.inputDirection.z));
+      movement.addInPlace(right.scale(this.inputDirection.x));
       
-      // Apply movement to camera position
-      this.camera.position.addInPlace(movement);
+      // Normalize movement vector for consistent speed
+      if (movement.length() > 0) {
+        movement.normalize();
+      }
+      
+      // Apply physics movement and jump
+      this.physicsService.applyPlayerMovement(movement, this.jumpPressed);
     }
   }
 }

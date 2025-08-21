@@ -6,22 +6,23 @@
     </div>
     
     <div class="menu-buttons">
-      <button class="menu-btn primary" (click)="startNewWorld()">
+      <button class="menu-btn primary" (click)="startNewWorld()" [disabled]="(isLoading$ | async)">
         <span class="btn-icon">🌍</span>
-        New World
+        <span *ngIf="!(isLoading$ | async)">New World</span>
+        <span *ngIf="(isLoading$ | async)">Creating...</span>
       </button>
       
-      <button class="menu-btn secondary" (click)="loadWorld()">
+      <button class="menu-btn secondary" (click)="loadWorld()" [disabled]="(isLoading$ | async)">
         <span class="btn-icon">📁</span>
         Load World
       </button>
       
-      <button class="menu-btn secondary" (click)="showSettings()">
+      <button class="menu-btn secondary" (click)="showSettings()" [disabled]="(isLoading$ | async)">
         <span class="btn-icon">⚙️</span>
         Settings
       </button>
       
-      <button class="menu-btn secondary" (click)="showAbout()">
+      <button class="menu-btn secondary" (click)="showAbout()" [disabled]="(isLoading$ | async)">
         <span class="btn-icon">ℹ️</span>
         About
       </button>
@@ -35,7 +36,7 @@
 </div>
 
 <!-- World Loading Modal -->
-<div class="modal-overlay" *ngIf="showLoadWorldModal" (click)="closeLoadWorld()">
+<div class="modal-overlay" *ngIf="showLoadWorldModal && !(isLoading$ | async)" (click)="closeLoadWorld()">
   <div class="load-world-modal" (click)="$event.stopPropagation()">
     <div class="modal-header">
       <h2>Load World</h2>
@@ -53,28 +54,22 @@
             </div>
           </div>
           <div class="world-actions">
-            <button class="action-btn load-btn" (click)="loadSelectedWorld(world); $event.stopPropagation()" 
-                    [disabled]="loading">
-              <span *ngIf="!loading">🎧 Load</span>
-              <span *ngIf="loading && selectedWorldId === world.id">Loading...</span>
+            <button class="action-btn load-btn" (click)="loadSelectedWorld(world); $event.stopPropagation()">
+              🎧 Load
             </button>
-            <button class="action-btn delete-btn" (click)="deleteWorld(world); $event.stopPropagation()" 
-                    [disabled]="loading">
+            <button class="action-btn delete-btn" (click)="deleteWorld(world); $event.stopPropagation()">
               🗑️ Delete
             </button>
           </div>
         </div>
       </div>
-      <div class="no-worlds" *ngIf="availableWorlds.length === 0 && !loading">
+      <div class="no-worlds" *ngIf="availableWorlds.length === 0">
         <p>🌍 No saved worlds found.</p>
         <p>Create a new world to get started!</p>
       </div>
-      <div class="loading-worlds" *ngIf="loading && availableWorlds.length === 0">
-        <p>Loading worlds...</p>
-      </div>
     </div>
     <div class="modal-footer">
-      <button class="menu-btn secondary" (click)="closeLoadWorld()" [disabled]="loading">Cancel</button>
+      <button class="menu-btn secondary" (click)="closeLoadWorld()">Cancel</button>
     </div>
   </div>
 </div>
@@ -83,7 +78,8 @@
 <app-settings-modal 
   [visible]="showSettingsModal"
   (close)="closeSettings()"
-  (saveSettings)="onSettingsSaved($event)">
+  (saveSettings)="onSettingsSaved($event)"
+  (returnToMainMenu)="onReturnToMainMenu()">
 </app-settings-modal>
 
 <!-- About Modal -->
@@ -125,3 +121,13 @@
     </div>
   </div>
 </div>
+
+<!-- Loading Overlay -->
+<app-loading-overlay 
+  [isVisible]="(isLoading$ | async) ?? false"
+  [loadingText]="(loadingMessage$ | async) ?? ''"
+  [details]="(loadingDetails$ | async) ?? ''"
+  [progress]="(loadingProgress$ | async) ?? 0"
+  [showProgress]="(showLoadingProgress$ | async) ?? false"
+  [cancellable]="(loadingCancellable$ | async) ?? false">
+</app-loading-overlay>

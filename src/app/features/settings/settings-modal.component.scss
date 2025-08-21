@@ -31,11 +31,43 @@
   border: 1px solid #444;
 }
 
-h2 {
-  margin-top: 0;
-  color: #ffffff;
-  text-align: center;
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 24px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ff4444;
+}
+
+.close-btn:focus {
+  outline: 2px solid #4a86e8;
+  outline-offset: 2px;
+}
+
+h2 {
+  margin: 0;
+  color: #ffffff;
   font-size: 28px;
 }
 

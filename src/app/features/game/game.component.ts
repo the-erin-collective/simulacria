@@ -1,5 +1,5 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewInit, Inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Store } from '@ngrx/store';
 import { Observable, Subscription, take } from 'rxjs';
 import { BabylonService } from '../../core/services/babylon.service';
@@ -36,6 +36,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   private gameLoop?: number;
   private lastFrameTime = 0;
   private boundKeyDownHandler?: (event: KeyboardEvent) => void;
+  private isBrowser: boolean;
   
   visibleBlocks$: Observable<Map<string, Block>>;
   playerPosition$: Observable<Vector3>;
@@ -68,8 +69,10 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     private playerSpawningService: PlayerSpawningService,
     private chunkManagerService: ChunkManagerService,
     private dbService: DBService,
-    private router: Router
+    private router: Router,
+    @Inject(PLATFORM_ID) private platformId: Object
   ) {
+    this.isBrowser = isPlatformBrowser(this.platformId);
     this.visibleBlocks$ = this.store.select(selectVisibleBlocks);
     this.playerPosition$ = this.store.select(selectPlayerPosition);
     this.gameMode$ = this.store.select(selectGameMode);
@@ -108,6 +111,12 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   async ngAfterViewInit(): Promise<void> {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      console.warn('Game initialization skipped in server environment');
+      return;
+    }
+    
     // Initialize BabylonJS
     await this.babylonService.initializeEngine(this.canvasRef);
     
@@ -276,6 +285,11 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private startGameLoop(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     const gameLoop = (currentTime: number) => {
       const deltaTime = currentTime - this.lastFrameTime;
       this.lastFrameTime = currentTime;
@@ -328,15 +342,24 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private setupInputHandlers(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
     const canvas = this.canvasRef.nativeElement;
     
     // Set mouse sensitivity in babylon service (controls are now handled there)
     this.babylonService.setMouseSensitivity(this.settings.mouseSensitivity);
     
+    // Also apply mouse settings to mouse control service
+    this.mouseControlService.setMouseSensitivity(this.settings.mouseSensitivity);
+    this.mouseControlService.setMouseYInversion(this.settings.invertMouseY);
+    
     // Remove any existing event listeners first
     document.removeEventListener('keydown', this.handleKeyDown);
     
-    // Add global ESC key handler for UI (using capture phase to intercept early)
+    // Add global TAB key handler for UI (using capture phase to intercept early)
     const boundKeyDownHandler = this.handleKeyDown.bind(this);
     document.addEventListener('keydown', boundKeyDownHandler, { capture: true });
     
@@ -398,13 +421,13 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
   
   private handleKeyDown(event: KeyboardEvent): void {
-    // Handle ESC key for settings modal
-    if (event.key === 'Escape') {
+    // Handle TAB key for settings modal (changed from ESC to avoid pointer lock conflicts)
+    if (event.key === 'Tab' && !this.showInventory) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
       
-      console.log('ESC pressed, current showSettings:', this.showSettings);
+      console.log('TAB pressed, current showSettings:', this.showSettings);
       this.toggleSettings();
       return;
     }
@@ -418,8 +441,8 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
     
-    // Handle Tab key for inventory
-    if (event.key === 'Tab') {
+    // Handle I key for inventory (changed from Tab to avoid conflicts)
+    if (event.key.toLowerCase() === 'i') {
       event.preventDefault();
       this.showInventory = !this.showInventory;
       return;
@@ -474,6 +497,8 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       // Apply settings to services
       this.chunkManagerService.setRenderDistance(this.settings.renderDistance);
       this.babylonService.setMouseSensitivity(this.settings.mouseSensitivity);
+      this.mouseControlService.setMouseSensitivity(this.settings.mouseSensitivity);
+      this.mouseControlService.setMouseYInversion(this.settings.invertMouseY);
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
@@ -522,6 +547,8 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     
     // Apply settings to services
     this.babylonService.setMouseSensitivity(this.settings.mouseSensitivity);
+    this.mouseControlService.setMouseSensitivity(this.settings.mouseSensitivity);
+    this.mouseControlService.setMouseYInversion(this.settings.invertMouseY);
     this.chunkManagerService.setRenderDistance(this.settings.renderDistance);
     
     // Update auto-save interval
