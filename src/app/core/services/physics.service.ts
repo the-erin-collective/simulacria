@@ -46,24 +46,29 @@ export class PhysicsService {
     
     this.scene = scene;
     
-    try {
-      // Import and initialize Havok physics module
-      const havokInstance = await HavokPhysics();
-      
-      // Initialize Havok plugin
-      this.havokPlugin = new HavokPlugin(true, havokInstance);
-      
-      // Enable physics in the scene
-      scene.enablePhysics(new BVector3(0, -9.81, 0), this.havokPlugin);
-      
-      // Create player physics body
-      this.createPlayerPhysicsBody();
-      
-      console.log('Havok physics initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize Havok physics:', error);
-      throw error;
-    }
+    console.log('Initializing Havok physics...');
+    
+    // Initialize Havok physics with proper WASM path configuration
+    const havokInstance = await HavokPhysics({
+      locateFile: (path: string) => {
+        // Use the assets path for WASM files
+        if (path.endsWith('.wasm')) {
+          return `assets/havok/${path}`;
+        }
+        return path;
+      }
+    });
+    
+    // Initialize Havok plugin
+    this.havokPlugin = new HavokPlugin(true, havokInstance);
+    
+    // Enable physics in the scene
+    scene.enablePhysics(new BVector3(0, -9.81, 0), this.havokPlugin);
+    
+    // Create player physics body
+    this.createPlayerPhysicsBody();
+    
+    console.log('Havok physics initialized successfully');
   }
 
   private createPlayerPhysicsBody(): void {
@@ -79,25 +84,22 @@ export class PhysicsService {
     }, this.scene);
     this.playerMesh.isVisible = false;
     
-    // Position player at starting location
-    this.playerMesh.position = new BVector3(0, 10, 5);
+    // Position player at a safe starting location (will be updated by spawning service)
+    // This is the physics body center position
+    this.playerMesh.position = new BVector3(0, 0, 20);
     
     // Create physics aggregate for player
     this.playerBody = new PhysicsAggregate(
       this.playerMesh,
       PhysicsShapeType.CAPSULE,
-      { mass: 70, restitution: 0.1, friction: 0.1 },
+      { mass: 70, restitution: 0.1, friction: 0.4 }, // Increased friction for better control
       this.scene
     );
-    
-    // Prevent rotation around X and Z axes (keep upright) 
-    // Note: setAngularFactor is not available in current Havok implementation
-    // The physics body should maintain upright position naturally with proper settings
     
     // Set motion type to dynamic
     this.playerBody.body.setMotionType(PhysicsMotionType.DYNAMIC);
     
-    console.log('Player physics body created');
+    console.log('Player physics body created at position (0, 0, 20) - will be repositioned by spawning system');
   }
 
   addBlockPhysics(position: Vector3, key: string): void {
@@ -191,9 +193,11 @@ export class PhysicsService {
       return { x: 0, y: 0, z: 0 };
     }
     
+    // Return the physics body center position
+    // Z is vertical in this coordinate system
     return {
       x: this.playerMesh.position.x,
-      y: this.playerMesh.position.y + this.playerHeight / 2, // Camera at head level
+      y: this.playerMesh.position.y,
       z: this.playerMesh.position.z
     };
   }
@@ -204,7 +208,30 @@ export class PhysicsService {
       return;
     }
     
-    this.playerMesh.position = new BVector3(position.x, position.y - this.playerHeight / 2, position.z);
+    // Position is for physics body center, mesh position should be the center
+    // In this coordinate system, Z is vertical (up/down)
+    this.playerMesh.position = new BVector3(position.x, position.y, position.z);
+    console.log(`Player positioned at physics center: (${position.x}, ${position.y}, ${position.z})`);
+  }
+
+  // Force set player position and reset velocity (for spawning)
+  forceSetPlayerPosition(position: Vector3): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser || !this.playerMesh || !this.playerBody) {
+      return;
+    }
+    
+    // Set mesh position
+    this.playerMesh.position = new BVector3(position.x, position.y, position.z);
+    
+    // Reset velocity to prevent falling through terrain
+    this.playerBody.body.setLinearVelocity(new BVector3(0, 0, 0));
+    this.playerBody.body.setAngularVelocity(new BVector3(0, 0, 0));
+    
+    // Reset grounded state
+    this.isGrounded = false;
+    
+    console.log(`Player force positioned at: (${position.x}, ${position.y}, ${position.z}) with reset velocity`);
   }
 
   private checkGrounded(): void {

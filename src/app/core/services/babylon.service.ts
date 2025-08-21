@@ -268,6 +268,24 @@ export class BabylonService {
     }
   }
 
+  // Force set player position for spawning (resets velocity)
+  forceSpawnPlayer(position: Vector3, rotation?: Vector3): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
+    
+    // Force set physics body position and reset velocity for spawning
+    this.physicsService.forceSetPlayerPosition(position);
+    
+    // Update camera rotation if provided
+    if (rotation && this.camera) {
+      this.camera.rotation = new BVector3(rotation.x, rotation.y, rotation.z);
+    }
+    
+    console.log(`Player spawned at: (${position.x}, ${position.y}, ${position.z})`);
+  }
+
   getCameraPosition(): Vector3 {
     // Return player physics position (handles SSR gracefully)
     return this.physicsService.getPlayerPosition();

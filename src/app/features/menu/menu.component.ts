@@ -5,6 +5,7 @@ import { Store } from '@ngrx/store';
 import { Observable, Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { setGameMode } from '../../store/ui/ui.actions';
+import * as UIActions from '../../store/ui/ui.actions';
 import { SettingsModalComponent } from '../settings/settings-modal.component';
 import { LoadingOverlayComponent } from '../ui/loading-overlay.component';
 import { GameSettings } from '../../shared/models/game.model';
@@ -67,10 +68,13 @@ export class MenuComponent implements OnInit, OnDestroy {
         next: (newWorld) => {
           console.log('New world created:', newWorld);
           this.store.dispatch(setGameMode({ mode: 'playing' }));
+          // Note: Don't stop loading here - let the game component handle the transition
           this.router.navigate(['/game']);
         },
         error: (error) => {
           console.error('Failed to create new world:', error);
+          // Only stop loading on error
+          this.store.dispatch(UIActions.stopLoading());
         }
       });
   }
@@ -153,6 +157,7 @@ export class MenuComponent implements OnInit, OnDestroy {
           
           // Navigate to game
           this.store.dispatch(setGameMode({ mode: 'playing' }));
+          // Note: Don't stop loading here - let the game component handle the transition
           this.router.navigate(['/game']);
           
           // Close modal
@@ -161,6 +166,8 @@ export class MenuComponent implements OnInit, OnDestroy {
         error: (error) => {
           console.error('Failed to load world:', error);
           this.selectedWorldId = null;
+          // Only stop loading on error
+          this.store.dispatch(UIActions.stopLoading());
         }
       });
   }

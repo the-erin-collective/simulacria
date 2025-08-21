@@ -141,7 +141,8 @@ export class WorldService {
               worldData: { id: worldId, name: worldName, blocks: new Map() },
               worldId
             }));
-            this.store.dispatch(UIActions.stopLoading());
+            // Don't stop loading here - let game component handle the transition
+            // this.store.dispatch(UIActions.stopLoading());
             observer.next({ worldId, worldName });
             observer.complete();
           }, 300);
@@ -195,7 +196,8 @@ export class WorldService {
               worldId: worldId,
               worldName: worldName
             }));
-            this.store.dispatch(UIActions.stopLoading());
+            // Don't stop loading here - let game component handle the transition
+            // this.store.dispatch(UIActions.stopLoading());
             observer.next(newWorld);
             observer.complete();
           }, 300);

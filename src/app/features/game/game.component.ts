@@ -10,22 +10,23 @@ import { PlayerSpawningService } from '../../core/services/player-spawning.servi
 import { ChunkManagerService } from '../../core/services/chunk-manager.service';
 import { DBService } from '../../core/services/db.service';
 import { selectVisibleBlocks, selectPlayerPosition, selectBlockAtPosition } from '../../store/world/world.selectors';
-import { selectGameMode, selectTargetBlock, selectIsBreaking, selectBreakingProgress } from '../../store/ui/ui.selectors';
+import { selectGameMode, selectTargetBlock, selectIsBreaking, selectBreakingProgress, selectIsLoading, selectLoadingMessage, selectLoadingDetails, selectLoadingProgress, selectShowLoadingProgress, selectLoadingCancellable } from '../../store/ui/ui.selectors';
 import { selectSelectedItem, selectEquippedTool, selectToolbarItems } from '../../store/player/player.selectors';
 import { generateWorld, worldGenerated, updatePlayerPosition } from '../../store/world/world.actions';
-import { setTargetBlock, setGameMode } from '../../store/ui/ui.actions';
+import { setTargetBlock, setGameMode, startLoading, updateLoadingProgress, stopLoading } from '../../store/ui/ui.actions';
 import { selectInventorySlot } from '../../store/player/player.actions';
 import { Block, Vector3, BlockType } from '../../shared/models/block.model';
 import { InventoryItem } from '../../shared/models/player.model';
 import { GENERATION_LIMIT, GameSettings, DEFAULT_SETTINGS } from '../../shared/models/game.model';
 import { InventoryComponent } from '../inventory/inventory.component';
 import { SettingsModalComponent } from '../settings/settings-modal.component';
+import { LoadingOverlayComponent } from '../ui/loading-overlay.component';
 import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-game',
   standalone: true,
-  imports: [CommonModule, InventoryComponent, SettingsModalComponent],
+  imports: [CommonModule, InventoryComponent, SettingsModalComponent, LoadingOverlayComponent],
   templateUrl: './game.component.html',
   styleUrls: ['./game.component.scss']
 })
@@ -37,6 +38,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   private lastFrameTime = 0;
   private boundKeyDownHandler?: (event: KeyboardEvent) => void;
   private isBrowser: boolean;
+  private isInitialSpawn = true; // Track if this is the first spawn
   
   visibleBlocks$: Observable<Map<string, Block>>;
   playerPosition$: Observable<Vector3>;
@@ -47,6 +49,14 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   selectedItem$: Observable<InventoryItem | null>;
   equippedTool$: Observable<any>;
   toolbarItems$: Observable<InventoryItem[]>;
+  
+  // Loading state observables
+  isLoading$: Observable<boolean>;
+  loadingMessage$: Observable<string | null>;
+  loadingDetails$: Observable<string | null>;
+  loadingProgress$: Observable<number>;
+  showLoadingProgress$: Observable<boolean>;
+  loadingCancellable$: Observable<boolean>;
   
   showInventory = false;
   showSettings = false;
@@ -82,6 +92,14 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     this.selectedItem$ = this.store.select(selectSelectedItem);
     this.equippedTool$ = this.store.select(selectEquippedTool);
     this.toolbarItems$ = this.store.select(selectToolbarItems);
+    
+    // Initialize loading observables
+    this.isLoading$ = this.store.select(selectIsLoading);
+    this.loadingMessage$ = this.store.select(selectLoadingMessage);
+    this.loadingDetails$ = this.store.select(selectLoadingDetails);
+    this.loadingProgress$ = this.store.select(selectLoadingProgress);
+    this.showLoadingProgress$ = this.store.select(selectShowLoadingProgress);
+    this.loadingCancellable$ = this.store.select(selectLoadingCancellable);
   }
 
   ngOnInit(): void {
@@ -98,7 +116,15 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
 
     this.subscriptions.add(
       this.playerPosition$.subscribe(position => {
-        this.babylonService.updatePlayerPosition(position);
+        if (this.isInitialSpawn) {
+          // For initial spawn, use force spawn to properly position player and reset physics
+          this.babylonService.forceSpawnPlayer(position);
+          this.isInitialSpawn = false;
+          console.log(`Initial spawn completed at: (${position.x}, ${position.y}, ${position.z})`);
+        } else {
+          // For regular updates, use normal position update
+          this.babylonService.updatePlayerPosition(position);
+        }
         this.debugInfo.position = `(${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)})`;
       })
     );
@@ -117,17 +143,54 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
     
-    // Initialize BabylonJS
-    await this.babylonService.initializeEngine(this.canvasRef);
-    
-    // Generate initial world with surface spawn
-    await this.generateInitialWorld();
-    
-    // Start game loop
-    this.startGameLoop();
-    
-    // Setup input handlers
-    this.setupInputHandlers();
+    try {
+      // Start loading if not already loading
+      this.store.select(selectIsLoading).pipe(take(1)).subscribe(isLoading => {
+        if (!isLoading) {
+          this.store.dispatch(startLoading({ 
+            operation: 'game_initialization', 
+            message: 'Initializing game...', 
+            showProgress: true 
+          }));
+        }
+      });
+      
+      // Initialize BabylonJS (wrapped in setTimeout to avoid change detection error)
+      setTimeout(() => {
+        this.store.dispatch(updateLoadingProgress({ progress: 10, details: 'Starting 3D engine...' }));
+      });
+      await this.babylonService.initializeEngine(this.canvasRef);
+      
+      // Generate initial world with surface spawn
+      this.store.dispatch(updateLoadingProgress({ progress: 30, details: 'Generating world...' }));
+      await this.generateInitialWorld();
+      
+      // Setup input handlers
+      this.store.dispatch(updateLoadingProgress({ progress: 80, details: 'Setting up controls...' }));
+      this.setupInputHandlers();
+      
+      // Start game loop
+      this.store.dispatch(updateLoadingProgress({ progress: 90, details: 'Starting game...' }));
+      this.startGameLoop();
+      
+      // Final initialization steps
+      this.store.dispatch(updateLoadingProgress({ progress: 95, details: 'Finalizing...' }));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Complete loading
+      this.store.dispatch(updateLoadingProgress({ progress: 100, details: 'Game ready!' }));
+      
+      // Delay the stop loading to ensure change detection cycle completes
+      await new Promise(resolve => setTimeout(resolve, 200));
+      this.store.dispatch(stopLoading());
+      
+    } catch (error) {
+      console.error('Game initialization failed:', error);
+      this.store.dispatch(updateLoadingProgress({ progress: 100, details: 'Initialization failed' }));
+      setTimeout(() => {
+        this.store.dispatch(stopLoading());
+      }, 100);
+    }
   }
 
   ngOnDestroy(): void {
@@ -155,10 +218,12 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     console.log('Generating initial world...');
     
     // Try to load existing world first
+    this.store.dispatch(updateLoadingProgress({ progress: 35, details: 'Checking for existing world...' }));
     const worldLoaded = await this.chunkManagerService.loadWorld();
     
     if (worldLoaded) {
       console.log('Found existing world, loading...');
+      this.store.dispatch(updateLoadingProgress({ progress: 40, details: 'Loading existing world...' }));
       
       // Load player position from database
       const playerState = await this.dbService.loadPlayerState();
@@ -170,6 +235,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       } else {
         // If no player position saved, find a new spawn position
         console.log('No saved player position, finding new spawn...');
+        this.store.dispatch(updateLoadingProgress({ progress: 50, details: 'Finding spawn position...' }));
         spawnPosition = await this.findSpawnPositionForExistingWorld();
       }
       
@@ -177,7 +243,9 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       this.store.dispatch(updatePlayerPosition({ position: spawnPosition }));
       
       // Load chunks around player and get visible blocks
+      this.store.dispatch(updateLoadingProgress({ progress: 60, details: 'Loading world chunks...' }));
       await this.chunkManagerService.loadChunksAroundPlayer(spawnPosition.x, spawnPosition.y, spawnPosition.z);
+      this.store.dispatch(updateLoadingProgress({ progress: 70, details: 'Rendering world...' }));
       const blocks = await this.chunkManagerService.getVisibleBlocks(spawnPosition.x, spawnPosition.y, spawnPosition.z);
       this.store.dispatch(worldGenerated({ blocks }));
     } else {
@@ -186,23 +254,28 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     }
     
     // Setup auto-save interval
+    this.store.dispatch(updateLoadingProgress({ progress: 75, details: 'Setting up auto-save...' }));
     this.setupAutoSave();
   }
   
   private async generateNewWorld(): Promise<void> {
     // Create a new world
+    this.store.dispatch(updateLoadingProgress({ progress: 40, details: 'Creating new world...' }));
     await this.chunkManagerService.createNewWorld();
     
     // Generate terrain using terrain service
+    this.store.dispatch(updateLoadingProgress({ progress: 45, details: 'Generating terrain...' }));
     const centerPosition = { x: 0, y: 0, z: 10 }; // Start generation at a reasonable height
     const generatedBlocks = this.terrainService.generateWorld(centerPosition, GENERATION_LIMIT);
     
     console.log(`Generated ${generatedBlocks.size} blocks`);
     
     // Import generated world into chunk-based storage
+    this.store.dispatch(updateLoadingProgress({ progress: 55, details: 'Processing world data...' }));
     await this.chunkManagerService.importFromFlatWorld(generatedBlocks);
     
     // Dispatch the generated blocks to the store immediately
+    this.store.dispatch(updateLoadingProgress({ progress: 60, details: 'Loading world into game...' }));
     this.store.dispatch(worldGenerated({ blocks: generatedBlocks }));
     
     // Wait for the store to update and ensure the blocks are available
@@ -210,6 +283,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     
     // Now find a safe spawn position with the world data available
     console.log('Finding spawn position in generated world...');
+    this.store.dispatch(updateLoadingProgress({ progress: 65, details: 'Finding spawn position...' }));
     const startPosition = await this.findSafeSpawnPosition(generatedBlocks);
     console.log(`Using spawn position: (${startPosition.x}, ${startPosition.y}, ${startPosition.z})`);
     
@@ -217,6 +291,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     this.store.dispatch(updatePlayerPosition({ position: startPosition }));
     
     // Load chunks around the spawn position
+    this.store.dispatch(updateLoadingProgress({ progress: 70, details: 'Loading spawn area...' }));
     await this.chunkManagerService.loadChunksAroundPlayer(startPosition.x, startPosition.y, startPosition.z);
   }
   
@@ -251,8 +326,8 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     console.warn('No safe spawn found using search, using fallback position');
-    // Fallback: spawn high above ground
-    return { x: 0, y: 0, z: 20 };
+    // Fallback: spawn high above ground with proper physics positioning
+    return { x: 0, y: 0, z: 30 }; // High enough to ensure physics can find ground
   }
   
   // Find surface at a specific position using block data directly
@@ -275,8 +350,12 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       const aboveAboveIsAir = !blockAboveAboveCurrentZ || blockAboveAboveCurrentZ.metadata.blockType === BlockType.AIR;
       
       if (currentIsSolid && aboveIsAir && aboveAboveIsAir) {
-        const spawnZ = z + 1.5; // Spawn 1.5 blocks above the solid surface
-        console.log(`Found valid surface at (${x}, ${y}, ${spawnZ})`);
+        // Calculate spawn position accounting for physics body center
+        // Physics body center needs to be positioned so player feet touch ground
+        // Player height is 1.8, so center is 0.9 above feet
+        // Place 1 block above surface + center offset
+        const spawnZ = z + 1 + 0.9; // Surface + clearance + physics center offset
+        console.log(`Found valid surface at (${x}, ${y}, ${spawnZ}) on solid block at z=${z}`);
         return { x, y, z: spawnZ };
       }
     }
@@ -505,6 +584,11 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
   
   setupAutoSave(): void {
+    // Only run on browser, not during SSR
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+    
     if (this.saveInterval) {
       clearInterval(this.saveInterval);
     }

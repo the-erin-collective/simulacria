@@ -74,4 +74,14 @@
     (saveSettings)="applySettings($event)"
     (returnToMainMenu)="returnToMenu()">
   </app-settings-modal>
+  
+  <!-- Loading Overlay -->
+  <app-loading-overlay 
+    [isVisible]="(isLoading$ | async) ?? false"
+    [loadingText]="(loadingMessage$ | async) ?? ''"
+    [details]="(loadingDetails$ | async) ?? ''"
+    [progress]="(loadingProgress$ | async) ?? 0"
+    [showProgress]="(showLoadingProgress$ | async) ?? false"
+    [cancellable]="(loadingCancellable$ | async) ?? false">
+  </app-loading-overlay>
 </div>

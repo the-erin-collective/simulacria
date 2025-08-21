@@ -275,6 +275,54 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.1);
   
+  .modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    
+    h2 {
+      margin: 0;
+      color: #64ffda;
+      font-size: 1.8rem;
+      font-weight: 700;
+    }
+    
+    .close-btn {
+      background: none;
+      border: none;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 2rem;
+      cursor: pointer;
+      padding: 0;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+      position: relative;
+      z-index: 1001;
+      
+      &:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.9);
+        transform: scale(1.1);
+      }
+      
+      &:focus {
+        outline: 2px solid #64ffda;
+        outline-offset: 2px;
+      }
+      
+      &:active {
+        transform: scale(0.95);
+      }
+    }
+  }
+  
   .modal-content {
     padding: 1.5rem;
     color: rgba(255, 255, 255, 0.9);
@@ -386,10 +434,44 @@
       }
     }
   }
+  
+  .modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: center;
+    
+    .menu-btn {
+      margin: 0;
+      min-width: 120px;
+    }
+  }
 }
 
 @media (max-width: 768px) {
   .load-world-modal {
+    .modal-header {
+      padding: 1rem;
+      
+      h2 {
+        font-size: 1.5rem;
+      }
+      
+      .close-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 1.8rem;
+      }
+    }
+    
+    .modal-content {
+      padding: 1rem;
+    }
+    
+    .modal-footer {
+      padding: 1rem;
+    }
+    
     .world-item {
       flex-direction: column;
       align-items: flex-start;

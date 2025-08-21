@@ -1,4 +1,5 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { UniversalCamera } from '@babylonjs/core';
 
 @Injectable({
@@ -14,8 +15,10 @@ export class MouseControlService {
   private maxVerticalAngle = Math.PI / 2 - 0.1;
   private boundMouseMoveHandler: (event: MouseEvent) => void;
   private boundPointerLockChangeHandler: () => void;
+  private isBrowser: boolean;
 
-  constructor() {
+  constructor(@Inject(PLATFORM_ID) private platformId: Object) {
+    this.isBrowser = isPlatformBrowser(this.platformId);
     // Bind event handlers to maintain proper 'this' context
     this.boundMouseMoveHandler = this.handleMouseMovement.bind(this);
     this.boundPointerLockChangeHandler = this.handlePointerLockChange.bind(this);
@@ -73,6 +76,11 @@ export class MouseControlService {
   }
 
   private cleanup(): void {
+    // Only run cleanup on browser, not during SSR
+    if (!this.isBrowser) {
+      return;
+    }
+    
     // Clean up any existing event listeners
     document.removeEventListener('mousemove', this.boundMouseMoveHandler);
     document.removeEventListener('pointerlockchange', this.boundPointerLockChangeHandler);
@@ -101,6 +109,11 @@ export class MouseControlService {
   }
 
   exitPointerLock(): void {
+    // Only run on browser, not during SSR
+    if (!this.isBrowser) {
+      return;
+    }
+    
     if (document.pointerLockElement) {
       document.exitPointerLock();
       console.log('Exiting pointer lock');
