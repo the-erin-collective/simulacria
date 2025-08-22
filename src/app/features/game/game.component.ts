@@ -69,6 +69,8 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   };
   private saveInterval?: number; // For auto-save
   private lastPlayerSaveTime = 0; // For debouncing player position saves
+  private lastBlockUpdateTime = 0; // For throttling block updates
+  private blockUpdateInterval = 250; // Reduced from 1000ms to 250ms for faster recovery
 
   constructor(
     private store: Store,
@@ -290,9 +292,18 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     // Set initial player position
     this.store.dispatch(updatePlayerPosition({ position: startPosition }));
     
-    // Load chunks around the spawn position
+    // Load chunks around the spawn position and ensure they have blocks
     this.store.dispatch(updateLoadingProgress({ progress: 70, details: 'Loading spawn area...' }));
     await this.chunkManagerService.loadChunksAroundPlayer(startPosition.x, startPosition.y, startPosition.z);
+    
+    // Immediately get and dispatch visible blocks around spawn to ensure they're loaded
+    const spawnBlocks = await this.chunkManagerService.getVisibleBlocks(startPosition.x, startPosition.y, startPosition.z);
+    console.log(`Loaded ${spawnBlocks.size} blocks around spawn position`);
+    if (spawnBlocks.size > 0) {
+      this.store.dispatch(worldGenerated({ blocks: spawnBlocks }));
+    } else {
+      console.warn('No blocks found around spawn position - this may cause the player to fall!');
+    }
   }
   
   private async findSpawnPositionForExistingWorld(): Promise<Vector3> {
@@ -380,6 +391,9 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       const cameraPosition = this.babylonService.getCameraPosition();
       this.store.dispatch(updatePlayerPosition({ position: cameraPosition }));
       
+      // Load visible blocks around player and update store
+      this.updateVisibleBlocks(cameraPosition);
+      
       // Update target block
       const targetBlock = this.babylonService.getTargetedBlock();
       this.store.dispatch(setTargetBlock({ position: targetBlock || undefined }));
@@ -417,6 +431,62 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
           });
         });
       });
+    }
+  }
+  
+  // Update visible blocks from chunk manager
+  private async updateVisibleBlocks(playerPosition: Vector3): Promise<void> {
+    // Throttle block updates to avoid excessive calls
+    const now = Date.now();
+    if (now - this.lastBlockUpdateTime < this.blockUpdateInterval) {
+      return;
+    }
+    this.lastBlockUpdateTime = now;
+    
+    try {
+      // Load chunks around player first to ensure they exist
+      await this.chunkManagerService.loadChunksAroundPlayer(
+        playerPosition.x, 
+        playerPosition.y, 
+        playerPosition.z
+      );
+      
+      // Get visible blocks from chunk manager
+      const visibleBlocks = await this.chunkManagerService.getVisibleBlocks(
+        playerPosition.x, 
+        playerPosition.y, 
+        playerPosition.z
+      );
+      
+      // Debug: Log block count to help diagnose the issue
+      if (visibleBlocks.size === 0) {
+        console.warn(`No visible blocks found at player position (${playerPosition.x}, ${playerPosition.y}, ${playerPosition.z})`);
+        
+        // Try to get nearby blocks in a wider search
+        const nearbyBlocks = await this.chunkManagerService.getVisibleBlocks(
+          0, 0, 0 // Search around world origin
+        );
+        
+        if (nearbyBlocks.size > 0) {
+          // If we find blocks at origin but not at player position, teleport player back
+          console.log('Teleporting player back to world origin - found blocks at origin');
+          const safePosition = { x: 0, y: 0, z: 15 };
+          
+          // Force teleport with physics reset
+          this.babylonService.forceSpawnPlayer(safePosition);
+          this.store.dispatch(updatePlayerPosition({ position: safePosition }));
+          
+          // Immediately load and dispatch the blocks around origin
+          this.store.dispatch(worldGenerated({ blocks: nearbyBlocks }));
+          return;
+        }
+      }
+      
+      // Dispatch blocks to store (this will trigger the visibleBlocks$ subscription)
+      this.store.dispatch(worldGenerated({ blocks: visibleBlocks }));
+      
+    } catch (error) {
+      console.error('Failed to update visible blocks:', error);
     }
   }
 

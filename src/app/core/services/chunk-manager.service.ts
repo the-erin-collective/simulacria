@@ -26,7 +26,7 @@ export interface ChunkCoordinates {
 export class ChunkManagerService {
   private chunks = new Map<string, WorldChunk>();
   private readonly chunkSize = 16; // 16x16x16 blocks per chunk
-  private readonly maxLoadedChunks = 64; // Limit memory usage
+  private readonly maxLoadedChunks = 1000; // Increased to prevent aggressive unloading during gameplay
   private renderDistance = 3; // Load chunks within 3 chunk radius
   private lastSaveTime = 0;
   private saveInterval = 60000; // 60 seconds between auto-saves
@@ -160,6 +160,7 @@ export class ChunkManagerService {
   async getVisibleBlocks(playerX: number, playerY: number, playerZ: number): Promise<Map<string, Block>> {
     const playerChunk = this.worldToChunk(playerX, playerY, playerZ);
     const visibleBlocks = new Map<string, Block>();
+    let chunksWithBlocks = 0;
 
     // Load chunks within render distance
     for (let chunkX = playerChunk.chunkX - this.renderDistance; 
@@ -182,6 +183,10 @@ export class ChunkManagerService {
           
           const chunk = await this.getChunk(chunkX, chunkY, chunkZ);
           
+          if (chunk.blocks.size > 0) {
+            chunksWithBlocks++;
+          }
+          
           // Add all blocks from this chunk to visible blocks
           for (const [localKey, block] of chunk.blocks) {
             const [localX, localY, localZ] = localKey.split(',').map(Number);
@@ -193,6 +198,10 @@ export class ChunkManagerService {
       }
     }
 
+    if (visibleBlocks.size === 0) {
+      console.warn(`No blocks found around player at (${playerX}, ${playerY}, ${playerZ})`);
+    }
+    
     return visibleBlocks;
   }
 
@@ -234,19 +243,23 @@ export class ChunkManagerService {
   private async enforceChunkLimit(): Promise<void> {
     if (this.chunks.size <= this.maxLoadedChunks) return;
 
-    // Sort chunks by last accessed time
+    // Sort chunks by last accessed time, but never unload chunks with blocks
     const chunkEntries = Array.from(this.chunks.entries())
+      .filter(([, chunk]) => chunk.blocks.size === 0) // Only consider empty chunks for removal
       .sort(([, a], [, b]) => a.lastAccessed - b.lastAccessed);
 
-    // Remove oldest chunks
-    const chunksToRemove = chunkEntries.slice(0, this.chunks.size - this.maxLoadedChunks);
-    console.log(`Unloading ${chunksToRemove.length} chunks to enforce limit...`);
+    // Remove oldest empty chunks first
+    const chunksToRemove = chunkEntries.slice(0, Math.max(0, this.chunks.size - this.maxLoadedChunks));
     
-    for (const [key, chunk] of chunksToRemove) {
-      if (chunk.isDirty) {
-        await this.saveChunk(chunk);
+    if (chunksToRemove.length > 0) {
+      console.log(`Unloading ${chunksToRemove.length} empty chunks to enforce limit...`);
+      
+      for (const [key, chunk] of chunksToRemove) {
+        if (chunk.isDirty) {
+          await this.saveChunk(chunk);
+        }
+        this.chunks.delete(key);
       }
-      this.chunks.delete(key);
     }
   }
 
