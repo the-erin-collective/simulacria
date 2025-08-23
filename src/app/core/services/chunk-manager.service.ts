@@ -26,11 +26,13 @@ export interface ChunkCoordinates {
 export class ChunkManagerService {
   private chunks = new Map<string, WorldChunk>();
   private readonly chunkSize = 16; // 16x16x16 blocks per chunk
-  private readonly maxLoadedChunks = 1000; // Increased to prevent aggressive unloading during gameplay
+  private readonly maxLoadedChunks = 5000; // Support large render distances
   private renderDistance = 3; // Load chunks within 3 chunk radius
   private lastSaveTime = 0;
   private saveInterval = 60000; // 60 seconds between auto-saves
   private worldLoaded = false;
+  private currentWorldId = 'current'; // Track current world
+  private dirtyChunks = new Set<string>(); // Track dirty chunks for efficient saving
 
   constructor(private dbService: DBService) {}
 
@@ -65,7 +67,7 @@ export class ChunkManagerService {
     return `${localX},${localY},${localZ}`;
   }
 
-  // Get or create chunk
+  // Get or create chunk with proper dirty tracking
   async getChunk(chunkX: number, chunkY: number, chunkZ: number): Promise<WorldChunk> {
     const key = this.getChunkKey(chunkX, chunkY, chunkZ);
     let chunk = this.chunks.get(key);
@@ -73,11 +75,15 @@ export class ChunkManagerService {
     if (!chunk) {
       // Try to load from database if world is loaded
       if (this.worldLoaded) {
-        const loadedChunk = await this.dbService.loadChunk(chunkX, chunkY, chunkZ);
-        if (loadedChunk) {
-          chunk = loadedChunk;
-          this.chunks.set(key, chunk);
-          console.log(`Loaded chunk ${key} from database with ${chunk.blocks.size} blocks`);
+        try {
+          const loadedChunk = await this.dbService.loadChunk(chunkX, chunkY, chunkZ, this.currentWorldId);
+          if (loadedChunk) {
+            chunk = loadedChunk;
+            this.chunks.set(key, chunk);
+            console.log(`Loaded chunk ${key} from database with ${chunk.blocks.size} blocks`);
+          }
+        } catch (error) {
+          console.error(`Failed to load chunk ${key} from database:`, error);
         }
       }
 
@@ -95,27 +101,31 @@ export class ChunkManagerService {
         console.log(`Created new chunk at ${key}`);
       }
       
-      this.enforceChunkLimit();
+      await this.enforceChunkLimit();
     }
 
     chunk.lastAccessed = Date.now();
     return chunk;
   }
 
-  // Set block at world coordinates
+  // Set block at world coordinates with proper dirty tracking
   async setBlockAt(worldX: number, worldY: number, worldZ: number, block: Block): Promise<void> {
     const coords = this.worldToChunk(worldX, worldY, worldZ);
     const chunk = await this.getChunk(coords.chunkX, coords.chunkY, coords.chunkZ!);
     const localKey = this.getLocalBlockKey(coords.localX, coords.localY, coords.localZ);
     
     chunk.blocks.set(localKey, block);
-    chunk.isDirty = true;
+    
+    if (!chunk.isDirty) {
+      chunk.isDirty = true;
+      this.dirtyChunks.add(this.getChunkKey(coords.chunkX, coords.chunkY, coords.chunkZ!));
+    }
     
     // Check if auto-save is needed
-    this.checkAutoSave();
+    await this.checkAutoSave();
   }
 
-  // Get block at world coordinates
+  // Get block at world coordinates with error handling
   async getBlockAt(worldX: number, worldY: number, worldZ: number): Promise<Block | null> {
     const coords = this.worldToChunk(worldX, worldY, worldZ);
     const key = this.getChunkKey(coords.chunkX, coords.chunkY, coords.chunkZ!);
@@ -125,9 +135,13 @@ export class ChunkManagerService {
     
     // If not in memory and world is loaded, try to load from database
     if (!chunk && this.worldLoaded) {
-      chunk = await this.dbService.loadChunk(coords.chunkX, coords.chunkY, coords.chunkZ!) || undefined;
-      if (chunk) {
-        this.chunks.set(key, chunk);
+      try {
+        chunk = await this.dbService.loadChunk(coords.chunkX, coords.chunkY, coords.chunkZ!, this.currentWorldId) || undefined;
+        if (chunk) {
+          this.chunks.set(key, chunk);
+        }
+      } catch (error) {
+        console.error(`Failed to load chunk for getBlockAt(${worldX}, ${worldY}, ${worldZ}):`, error);
       }
     }
     
@@ -137,7 +151,7 @@ export class ChunkManagerService {
     return chunk.blocks.get(localKey) || null;
   }
 
-  // Remove block at world coordinates
+  // Remove block at world coordinates with proper dirty tracking
   async removeBlockAt(worldX: number, worldY: number, worldZ: number): Promise<boolean> {
     const coords = this.worldToChunk(worldX, worldY, worldZ);
     const key = this.getChunkKey(coords.chunkX, coords.chunkY, coords.chunkZ!);
@@ -149,8 +163,11 @@ export class ChunkManagerService {
     const existed = chunk.blocks.delete(localKey);
     
     if (existed) {
-      chunk.isDirty = true;
-      this.checkAutoSave();
+      if (!chunk.isDirty) {
+        chunk.isDirty = true;
+        this.dirtyChunks.add(key);
+      }
+      await this.checkAutoSave();
     }
     
     return existed;
@@ -263,20 +280,30 @@ export class ChunkManagerService {
     }
   }
 
-  // Save chunk data to IndexedDB
+  // Save chunk data to IndexedDB with error handling
   private async saveChunk(chunk: WorldChunk): Promise<void> {
     try {
-      await this.dbService.saveChunk(chunk);
+      await this.dbService.saveChunk(chunk, this.currentWorldId);
       chunk.isDirty = false;
+      const chunkKey = this.getChunkKey(chunk.chunkX, chunk.chunkY, chunk.chunkZ!);
+      this.dirtyChunks.delete(chunkKey);
       console.log(`Saved chunk ${chunk.chunkX},${chunk.chunkY},${chunk.chunkZ} with ${chunk.blocks.size} blocks`);
     } catch (error) {
       console.error(`Failed to save chunk ${chunk.chunkX},${chunk.chunkY},${chunk.chunkZ}:`, error);
+      throw error;
     }
   }
 
-  // Get all dirty chunks for bulk saving
+  // Get all dirty chunks for bulk saving (optimized)
   getDirtyChunks(): WorldChunk[] {
-    return Array.from(this.chunks.values()).filter(chunk => chunk.isDirty);
+    const dirtyChunksList: WorldChunk[] = [];
+    for (const chunkKey of this.dirtyChunks) {
+      const chunk = this.chunks.get(chunkKey);
+      if (chunk && chunk.isDirty) {
+        dirtyChunksList.push(chunk);
+      }
+    }
+    return dirtyChunksList;
   }
 
   // Mark all chunks as clean after save
@@ -284,51 +311,146 @@ export class ChunkManagerService {
     for (const chunk of this.chunks.values()) {
       chunk.isDirty = false;
     }
+    this.dirtyChunks.clear();
   }
 
-  // Get chunk statistics
-  getChunkStats(): { loadedChunks: number; totalBlocks: number; dirtyChunks: number } {
+  // Get current world ID
+  getCurrentWorldId(): string {
+    return this.currentWorldId;
+  }
+  
+  // Check if world is loaded
+  isWorldLoaded(): boolean {
+    return this.worldLoaded;
+  }
+
+  // Get detailed chunk statistics
+  getChunkStats(): { loadedChunks: number; totalBlocks: number; dirtyChunks: number; memoryUsage: string } {
     let totalBlocks = 0;
-    let dirtyChunks = 0;
+    let memoryEstimate = 0;
 
     for (const chunk of this.chunks.values()) {
       totalBlocks += chunk.blocks.size;
-      if (chunk.isDirty) dirtyChunks++;
+      // Rough memory estimate: each block ~100 bytes
+      memoryEstimate += chunk.blocks.size * 100;
     }
 
     return {
       loadedChunks: this.chunks.size,
       totalBlocks,
-      dirtyChunks
+      dirtyChunks: this.dirtyChunks.size,
+      memoryUsage: `${Math.round(memoryEstimate / 1024 / 1024 * 100) / 100} MB`
     };
   }
 
-  // Clear all chunks (for new world)
+  // Clear all chunks (for new world) with proper cleanup
   async clearAllChunks(): Promise<void> {
     this.chunks.clear();
+    this.dirtyChunks.clear();
+    
     if (this.worldLoaded) {
       try {
-        await this.dbService.clearAllData();
-        console.log('Cleared all world data');
+        await this.dbService.clearAllData(this.currentWorldId);
+        console.log(`Cleared all data for world ${this.currentWorldId}`);
       } catch (error) {
         console.error('Failed to clear database:', error);
       }
     }
   }
 
-  // Import from flat world map to chunk system
+  // Switch to a different world
+  async switchToWorld(worldId: string): Promise<void> {
+    // Save current world before switching
+    if (this.worldLoaded) {
+      await this.saveAllChunks();
+    }
+    
+    // Clear current chunks from memory
+    this.chunks.clear();
+    this.dirtyChunks.clear();
+    
+    // Switch to new world
+    this.currentWorldId = worldId;
+    this.worldLoaded = true;
+    
+    console.log(`Switched to world: ${worldId}`);
+  }
+
+  // Import from flat world map to chunk system with progress reporting
   async importFromFlatWorld(flatWorld: Map<string, Block>): Promise<void> {
     await this.clearAllChunks();
     console.log(`Importing flat world with ${flatWorld.size} blocks to chunk system...`);
 
+    const startTime = Date.now();
+    let processedBlocks = 0;
+    const totalBlocks = flatWorld.size;
+    
     for (const [worldKey, block] of flatWorld) {
       const [x, y, z] = worldKey.split(',').map(Number);
       await this.setBlockAt(x, y, z, block);
+      processedBlocks++;
+      
+      // Log progress every 1000 blocks
+      if (processedBlocks % 1000 === 0) {
+        const progress = Math.round((processedBlocks / totalBlocks) * 100);
+        console.log(`Import progress: ${progress}% (${processedBlocks}/${totalBlocks} blocks)`);
+      }
     }
     
-    // Save all chunks after import
+    // Save all chunks after import with bulk operation
     await this.saveAllChunks();
-    console.log('World import complete');
+    const duration = Date.now() - startTime;
+    console.log(`World import complete: ${totalBlocks} blocks processed in ${duration}ms`);
+  }
+  
+  // Bulk save blocks for terrain generation with optimized performance
+  async saveBulkBlocks(blocks: Map<string, Block>): Promise<void> {
+    console.log(`Bulk saving ${blocks.size} blocks to chunk system...`);
+    
+    const startTime = Date.now();
+    const affectedChunks = new Map<string, WorldChunk>();
+    
+    // Add all blocks to appropriate chunks
+    for (const [worldKey, block] of blocks) {
+      const [x, y, z] = worldKey.split(',').map(Number);
+      const coords = this.worldToChunk(x, y, z);
+      const chunkKey = this.getChunkKey(coords.chunkX, coords.chunkY, coords.chunkZ!);
+      
+      let chunk = affectedChunks.get(chunkKey);
+      if (!chunk) {
+        chunk = await this.getChunk(coords.chunkX, coords.chunkY, coords.chunkZ!);
+        affectedChunks.set(chunkKey, chunk);
+      }
+      
+      const localKey = this.getLocalBlockKey(coords.localX, coords.localY, coords.localZ);
+      chunk.blocks.set(localKey, block);
+      
+      if (!chunk.isDirty) {
+        chunk.isDirty = true;
+        this.dirtyChunks.add(chunkKey);
+      }
+    }
+    
+    // Use bulk save for better performance
+    const chunksToSave = Array.from(affectedChunks.values()).filter(chunk => chunk.isDirty);
+    if (chunksToSave.length > 0) {
+      try {
+        await this.dbService.saveBulkChunks(chunksToSave, this.currentWorldId);
+        
+        // Mark chunks as clean
+        chunksToSave.forEach(chunk => {
+          chunk.isDirty = false;
+          const chunkKey = this.getChunkKey(chunk.chunkX, chunk.chunkY, chunk.chunkZ!);
+          this.dirtyChunks.delete(chunkKey);
+        });
+        
+        const duration = Date.now() - startTime;
+        console.log(`Bulk save complete: ${blocks.size} blocks saved to ${chunksToSave.length} chunks in ${duration}ms`);
+      } catch (error) {
+        console.error('Bulk save failed:', error);
+        throw error;
+      }
+    }
   }
 
   // Export to flat world map (for compatibility)
@@ -349,16 +471,7 @@ export class ChunkManagerService {
     return flatWorld;
   }
   
-  // Check if auto-save is needed
-  private async checkAutoSave(): Promise<void> {
-    const now = Date.now();
-    if (now - this.lastSaveTime >= this.saveInterval) {
-      await this.saveAllChunks();
-      this.lastSaveTime = now;
-    }
-  }
-  
-  // Save all dirty chunks
+  // Save all dirty chunks with optimized bulk operations
   async saveAllChunks(): Promise<void> {
     if (!this.worldLoaded) {
       console.log('World not loaded, skipping save');
@@ -373,35 +486,54 @@ export class ChunkManagerService {
     
     console.log(`Saving ${dirtyChunks.length} dirty chunks...`);
     
-    const savePromises = dirtyChunks.map(chunk => this.saveChunk(chunk));
-    await Promise.all(savePromises);
-    
-    console.log('World saved successfully!');
+    try {
+      // Use bulk save for better performance when there are many chunks
+      if (dirtyChunks.length > 5) {
+        await this.dbService.saveBulkChunks(dirtyChunks, this.currentWorldId);
+        this.markChunksAsClean();
+      } else {
+        // Use individual saves for small numbers of chunks
+        const savePromises = dirtyChunks.map(chunk => this.saveChunk(chunk));
+        await Promise.all(savePromises);
+      }
+      
+      console.log('World saved successfully!');
+    } catch (error) {
+      console.error('Failed to save world chunks:', error);
+      throw error;
+    }
   }
   
-  // Load world from database
-  async loadWorld(): Promise<boolean> {
+  // Load world from database with proper world ID support
+  async loadWorld(worldId?: string): Promise<boolean> {
     try {
-      // Load world info
-      const worldInfo = await this.dbService.loadWorldInfo();
-      if (!worldInfo) {
-        console.log('No saved world found.');
-        return false;
+      if (worldId) {
+        // Load specific world
+        const worldData = await this.dbService.loadWorld(worldId);
+        if (!worldData) {
+          console.log(`World ${worldId} not found.`);
+          return false;
+        }
+        
+        await this.switchToWorld(worldId);
+        console.log(`Loaded world: ${worldData.name} (${worldId})`);
+      } else {
+        // Try to load any existing world (backwards compatibility)
+        const worlds = await this.dbService.loadAllWorlds();
+        if (worlds.length === 0) {
+          console.log('No saved worlds found.');
+          return false;
+        }
+        
+        // Load the most recently played world
+        const latestWorld = worlds.sort((a, b) => b.lastPlayed - a.lastPlayed)[0];
+        await this.switchToWorld(latestWorld.id);
+        console.log(`Loaded latest world: ${latestWorld.name} (${latestWorld.id})`);
       }
       
-      // Get all chunk IDs
-      const chunkIds = await this.dbService.getChunkIds();
-      console.log(`Found ${chunkIds.length} saved chunks.`);
-      
-      if (chunkIds.length === 0) {
-        return false;
-      }
-      
-      // Clear current chunks
-      this.chunks.clear();
-      
-      // Mark world as loaded to enable database operations
-      this.worldLoaded = true;
+      // Get chunk count for logging
+      const chunkIds = await this.dbService.getChunkIds(this.currentWorldId);
+      console.log(`Found ${chunkIds.length} saved chunks for world ${this.currentWorldId}`);
       
       return true;
     } catch (error) {
@@ -410,27 +542,32 @@ export class ChunkManagerService {
     }
   }
   
-  // Create a new world
-  async createNewWorld(): Promise<void> {
-    // Clear any existing data
-    await this.clearAllChunks();
-    
-    // Save initial world info
-    await this.dbService.saveWorldInfo({
-      name: 'New World',
-      created: Date.now(),
-      seed: Math.floor(Math.random() * 1000000)
-    });
-    
-    // Mark world as loaded
-    this.worldLoaded = true;
-    
-    console.log('New world created!');
+  // Create a new world with proper database integration
+  async createNewWorld(worldName?: string, settings?: any): Promise<string> {
+    try {
+      const worldId = await this.dbService.createWorld({
+        name: worldName || `New World ${Date.now()}`,
+        settings: settings || {},
+        metadata: {
+          createdBy: 'ChunkManager',
+          terrainGenerated: false
+        }
+      });
+      
+      // Switch to the new world
+      await this.switchToWorld(worldId);
+      
+      console.log(`Created and loaded new world: ${worldName || 'Unnamed'} (${worldId})`);
+      return worldId;
+    } catch (error) {
+      console.error('Failed to create new world:', error);
+      throw error;
+    }
   }
   
   // Set save interval
   setSaveInterval(seconds: number): void {
-    this.saveInterval = seconds * 1000;
+    this.saveInterval = Math.max(10, seconds * 1000); // Minimum 10 seconds
     console.log(`Auto-save interval set to ${seconds} seconds`);
   }
   
@@ -439,9 +576,18 @@ export class ChunkManagerService {
     this.renderDistance = Math.max(1, Math.min(8, distance));
     console.log(`Render distance set to ${this.renderDistance} chunks`);
   }
-  
-  // Check if world is loaded
-  isWorldLoaded(): boolean {
-    return this.worldLoaded;
+
+  // Enhanced auto-save check with error handling
+  private async checkAutoSave(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastSaveTime >= this.saveInterval && this.dirtyChunks.size > 0) {
+      try {
+        await this.saveAllChunks();
+        this.lastSaveTime = now;
+      } catch (error) {
+        console.error('Auto-save failed:', error);
+        // Don't update lastSaveTime on failure to retry soon
+      }
+    }
   }
 }

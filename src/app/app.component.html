@@ -1,1 +1,36 @@
-<router-outlet></router-outlet>
+<!-- Show splash screen until database is initialized -->
+<app-database-splash 
+  *ngIf="!isDatabaseReady() && !initializationFailed()"
+  (initializationComplete)="onDatabaseInitialized($event)">
+</app-database-splash>
+
+<!-- Show main app content once database is ready -->
+<div *ngIf="isDatabaseReady()" class="main-app">
+  <router-outlet></router-outlet>
+</div>
+
+<!-- Show fallback error state if initialization fails -->
+<div *ngIf="initializationFailed()" class="initialization-error">
+  <div class="error-container">
+    <h2>❌ Database Initialization Failed</h2>
+    <p>The game database could not be initialized. This might be due to:</p>
+    <ul>
+      <li><strong>Firefox Private Browsing:</strong> IndexedDB is disabled in private browsing mode</li>
+      <li><strong>Storage Settings:</strong> Browser privacy settings blocking IndexedDB</li>
+      <li><strong>Storage Space:</strong> Insufficient browser storage space</li>
+      <li><strong>Multiple Tabs:</strong> Other browser tabs running the game</li>
+    </ul>
+    <div class="firefox-help">
+      <h3>🦊 Firefox Users:</h3>
+      <p>If you're using Firefox, please:</p>
+      <ol>
+        <li>Disable private browsing mode</li>
+        <li>Check <code>about:config</code> for <code>dom.indexedDB.enabled = true</code></li>
+        <li>Try refreshing the page after closing other tabs</li>
+      </ol>
+    </div>
+    <button (click)="reloadPage()" class="retry-btn">
+      🔄 Reload Page
+    </button>
+  </div>
+</div>

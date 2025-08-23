@@ -17,7 +17,7 @@
         Load World
       </button>
       
-      <button class="menu-btn secondary" (click)="showSettings()" [disabled]="(isLoading$ | async)">
+      <button class="menu-btn secondary" (click)="openSettings()" [disabled]="(isLoading$ | async)">
         <span class="btn-icon">⚙️</span>
         Settings
       </button>
@@ -36,47 +36,59 @@
 </div>
 
 <!-- World Loading Modal -->
-<div class="modal-overlay" *ngIf="showLoadWorldModal && !(isLoading$ | async)" (click)="closeLoadWorld()">
+<div class="modal-overlay" *ngIf="showLoadWorldModal" (click)="closeLoadWorld()">
   <div class="load-world-modal" (click)="$event.stopPropagation()">
     <div class="modal-header">
       <h2>Load World</h2>
       <button class="close-btn" (click)="closeLoadWorld()">&times;</button>
     </div>
     <div class="modal-content">
-      <div class="world-list" *ngIf="availableWorlds.length > 0">
-        <div class="world-item" *ngFor="let world of availableWorlds" (click)="selectWorld(world)" 
-             [class.selected]="selectedWorldId === world.id">
-          <div class="world-info">
-            <h3>{{world.name || 'Unnamed World'}}</h3>
-            <div class="world-meta">
-              <span class="world-date">📅 Created: {{formatDate(world.created)}}</span>
-              <span class="world-date" *ngIf="world.lastPlayed">🕰️ Last played: {{formatDate(world.lastPlayed)}}</span>
+      <!-- Loading state within modal -->
+      <div class="loading-worlds" *ngIf="(isLoading$ | async) && ((loadingMessage$ | async)?.includes('worlds') || (loadingMessage$ | async)?.includes('World'))">
+        <div class="loading-spinner">⏳</div>
+        <p>{{(loadingMessage$ | async)}}</p>
+        <p *ngIf="(loadingDetails$ | async)">{{(loadingDetails$ | async)}}</p>
+      </div>
+      <!-- World list when not loading -->
+      <div *ngIf="!(isLoading$ | async) || !((loadingMessage$ | async)?.includes('worlds') || (loadingMessage$ | async)?.includes('World'))">
+        <div class="world-list" *ngIf="availableWorlds.length > 0">
+          <div class="world-item" *ngFor="let world of availableWorlds" (click)="selectWorld(world)" 
+               [class.selected]="selectedWorldId === world.id">
+            <div class="world-info">
+              <h3>{{world.name || 'Unnamed World'}}</h3>
+              <div class="world-meta">
+                <span class="world-date">📅 Created: {{formatDate(world.created)}}</span>
+                <span class="world-date" *ngIf="world.lastPlayed">🕰️ Last played: {{formatDate(world.lastPlayed)}}</span>
+              </div>
+            </div>
+            <div class="world-actions">
+              <button class="action-btn load-btn" (click)="loadSelectedWorld(world); $event.stopPropagation()"
+                      [disabled]="(isLoading$ | async)">
+                🎧 Load
+              </button>
+              <button class="action-btn delete-btn" (click)="deleteWorld(world); $event.stopPropagation()"
+                      [disabled]="(isLoading$ | async)">
+                🗑️ Delete
+              </button>
             </div>
           </div>
-          <div class="world-actions">
-            <button class="action-btn load-btn" (click)="loadSelectedWorld(world); $event.stopPropagation()">
-              🎧 Load
-            </button>
-            <button class="action-btn delete-btn" (click)="deleteWorld(world); $event.stopPropagation()">
-              🗑️ Delete
-            </button>
-          </div>
         </div>
-      </div>
-      <div class="no-worlds" *ngIf="availableWorlds.length === 0">
-        <p>🌍 No saved worlds found.</p>
-        <p>Create a new world to get started!</p>
+        <div class="no-worlds" *ngIf="availableWorlds.length === 0">
+          <p>🌍 No saved worlds found.</p>
+          <p>Create a new world to get started!</p>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="menu-btn secondary" (click)="closeLoadWorld()">Cancel</button>
+      <button class="menu-btn secondary" (click)="closeLoadWorld()" [disabled]="(isLoading$ | async)">Cancel</button>
     </div>
   </div>
 </div>
 
 <!-- Settings Modal -->
 <app-settings-modal 
-  [visible]="showSettingsModal"
+  [visible]="showSettings"
+  [showReturnToMenu]="false"
   (close)="closeSettings()"
   (saveSettings)="onSettingsSaved($event)"
   (returnToMainMenu)="onReturnToMainMenu()">

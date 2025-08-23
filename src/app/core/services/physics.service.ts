@@ -370,7 +370,8 @@ export class PhysicsService {
     
     // Clean up character controller
     if (this.characterController) {
-      //this.characterController.dispose();
+      // Note: PhysicsCharacterController does not have a dispose() method
+      // It will be cleaned up automatically when the scene is disposed
     }
     
     // Clean up display capsule

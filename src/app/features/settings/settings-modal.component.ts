@@ -15,6 +15,7 @@ import { DBService } from '../../core/services/db.service';
 })
 export class SettingsModalComponent implements OnInit, OnDestroy {
   @Input() visible = false;
+  @Input() showReturnToMenu = false; // Control whether "Return to Menu" button is shown
   @Output() close = new EventEmitter<void>();
   @Output() saveSettings = new EventEmitter<GameSettings>();
   @Output() returnToMainMenu = new EventEmitter<void>();
@@ -164,13 +165,21 @@ export class SettingsModalComponent implements OnInit, OnDestroy {
   }
   
   closeModal(): void {
+    console.log('Settings modal closeModal() called');
     // Close without saving changes (revert to saved settings)
     this.loadSettings().then(() => {
       this.close.emit();
+      console.log('Settings modal close event emitted');
+    }).catch(() => {
+      // Even if loading settings fails, still close the modal
+      this.close.emit();
+      console.log('Settings modal close event emitted (fallback)');
     });
   }
   
   async returnToMenu(): Promise<void> {
+    console.log('🔴 Settings modal returnToMenu() called');
+    console.trace('Settings returnToMenu call stack:');
     try {
       // Save settings to database first
       await this.dbService.saveGameSettings(this.settings);
@@ -187,12 +196,14 @@ export class SettingsModalComponent implements OnInit, OnDestroy {
       this.saveSettings.emit(this.settings);
       
       // Emit return to main menu event
+      console.log('🔴 Settings modal emitting returnToMainMenu event');
       this.returnToMainMenu.emit();
       
       console.log('Settings saved and returning to main menu');
     } catch (error) {
       console.error('Failed to save settings before returning to menu:', error);
       // Still return to menu even if saving failed
+      console.log('🔴 Settings modal emitting returnToMainMenu event (error case)');
       this.returnToMainMenu.emit();
     }
   }

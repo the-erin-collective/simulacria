@@ -18,37 +18,125 @@ export class TerrainGenerationService {
 
   constructor() {}
 
-  generateWorld(startPosition: Vector3, generationLimit: number): Map<string, Block> {
+  generateWorld(startPosition: Vector3, radius: number = 32): Map<string, Block> {
     this.generatedBlocks.clear();
     this.blockQueue = [];
+    
+    // Special handling for spawn chunk (chunk 0,0) - create predictable spawn area
+    if (this.isSpawnChunk(startPosition)) {
+      console.log('🎯 Generating optimized spawn chunk at origin...');
+      return this.generateOptimizedSpawnChunk();
+    }
 
-    // Create the initial seed block
+    // Original complex terrain generation for all other chunks
+    return this.generateComplexTerrain(startPosition, radius);
+  }
+  
+  private isSpawnChunk(position: Vector3): boolean {
+    // Check if this is the spawn chunk (chunk coordinates 0,0,0)
+    const chunkSize = 16;
+    const chunkX = Math.floor(position.x / chunkSize);
+    const chunkY = Math.floor(position.y / chunkSize);
+    const chunkZ = Math.floor(position.z / chunkSize);
+    return chunkX === 0 && chunkY === 0 && chunkZ === 0;
+  }
+  
+  /**
+   * Generate a simple, predictable spawn chunk:
+   * - 8 dirt blocks at bottom (Z = 0-7)
+   * - 8 air blocks on top (Z = 8-15)
+   * - Player spawns at Z = 8.9 (on top of dirt)
+   */
+  private generateOptimizedSpawnChunk(): Map<string, Block> {
+    const spawnBlocks = new Map<string, Block>();
+    const chunkSize = 16;
+    
+    console.log('🎯 Generating optimized spawn chunk...');
+    
+    // Generate 16x16x16 chunk starting at origin (0,0,0)
+    for (let x = 0; x < chunkSize; x++) {
+      for (let y = 0; y < chunkSize; y++) {
+        // Bottom half: dirt blocks (Z = 0 to 7)
+        for (let z = 0; z < 8; z++) {
+          const position = { x, y, z };
+          const block = this.createBlock(position, BlockType.DIRT);
+          const key = this.getBlockKey(position);
+          spawnBlocks.set(key, block);
+          
+          // Debug key blocks
+          if ((x === 8 && y === 8) || (x === 4 && y === 4) || (x === 12 && y === 12)) {
+            console.log(`🔗 Dirt block: ${key} -> ${block.metadata.blockType}`);
+          }
+        }
+        
+        // Top half: air blocks (Z = 8 to 15) 
+        for (let z = 8; z < 16; z++) {
+          const position = { x, y, z };
+          const block = this.createBlock(position, BlockType.AIR);
+          const key = this.getBlockKey(position);
+          spawnBlocks.set(key, block);
+          
+          // Debug key blocks
+          if ((x === 8 && y === 8) || (x === 4 && y === 4) || (x === 12 && y === 12)) {
+            if (z === 8) { // Only log the first air block to avoid spam
+              console.log(`🌪️ Air block: ${key} -> ${block.metadata.blockType}`);
+            }
+          }
+        }
+      }
+    }
+    
+    console.log(`✅ Generated optimized spawn chunk with ${spawnBlocks.size} blocks (${16*16*8} dirt + ${16*16*8} air)`);
+    console.log('🎮 Spawn chunk layout:');
+    console.log('  Z=0-7: 🟤 Dirt foundation (safe ground)');
+    console.log('  Z=8-15: ☁️ Air space (safe spawn area)');
+    console.log('🎮 Player spawn position: (8, 8, 8.9) - standing on dirt platform');
+    console.log('🔍 Debug: Generated dirt blocks at Z=0-7, air blocks at Z=8-15');
+    
+    // Verify critical spawn blocks
+    const centerDirt = spawnBlocks.get('8,8,7');
+    const centerAir = spawnBlocks.get('8,8,8');
+    console.log(`🔍 Spawn verification: dirt at 8,8,7 = ${centerDirt?.metadata.blockType}, air at 8,8,8 = ${centerAir?.metadata.blockType}`);
+    
+    return spawnBlocks;
+  }
+  
+  private generateComplexTerrain(startPosition: Vector3, radius: number): Map<string, Block> {
+    console.log(`🌎 Generating complex terrain at (${startPosition.x}, ${startPosition.y}, ${startPosition.z}) with radius ${radius}`);
+    
+    // Original complex terrain generation logic
     const seedBlock = this.createBlock(startPosition, BlockType.DIRT);
     this.generatedBlocks.set(this.getBlockKey(startPosition), seedBlock);
     this.blockQueue.push(startPosition);
 
-    // Generate blocks using breadth-first traversal
-    let generatedCount = 1;
-    while (this.blockQueue.length > 0 && generatedCount < generationLimit) {
+    // Generate blocks using breadth-first traversal within the specified radius
+    while (this.blockQueue.length > 0) {
       const currentPosition = this.blockQueue.shift()!;
       const currentBlock = this.generatedBlocks.get(this.getBlockKey(currentPosition))!;
 
-      // Generate neighboring blocks
+      // Generate neighboring blocks within radius
       const neighbors = this.getNeighborPositions(currentPosition);
       for (const neighborPos of neighbors) {
         const neighborKey = this.getBlockKey(neighborPos);
         
-        if (!this.generatedBlocks.has(neighborKey) && generatedCount < generationLimit) {
+        // Check if neighbor is within radius and not already generated
+        const distance = Math.sqrt(
+          Math.pow(neighborPos.x - startPosition.x, 2) +
+          Math.pow(neighborPos.y - startPosition.y, 2) +
+          Math.pow(neighborPos.z - startPosition.z, 2)
+        );
+        
+        if (!this.generatedBlocks.has(neighborKey) && distance <= radius) {
           const newBlockType = this.selectBlockType(currentBlock, neighborPos, currentPosition);
           const newBlock = this.createBlock(neighborPos, newBlockType, currentBlock);
           
           this.generatedBlocks.set(neighborKey, newBlock);
           this.blockQueue.push(neighborPos);
-          generatedCount++;
         }
       }
     }
 
+    console.log(`✅ Generated complex terrain with ${this.generatedBlocks.size} blocks`);
     return new Map(this.generatedBlocks);
   }
 

@@ -3,58 +3,58 @@ import { BlockType, ProbabilityMapping, BlockMetadata } from './block.model';
 export const DEFAULT_PROBABILITY_MAPPINGS: Record<BlockType, Partial<BlockMetadata['probabilityMappings']>> = {
   [BlockType.DIRT]: {
     horizontalNeighbors: {
-      [BlockType.AIR]: 2,
-      [BlockType.DIRT]: 75,
-      [BlockType.STONE]: 10,
-      [BlockType.SAND]: 8,
-      [BlockType.WATER]: 5,
+      [BlockType.AIR]: 8,
+      [BlockType.DIRT]: 70,
+      [BlockType.STONE]: 12,
+      [BlockType.SAND]: 7,
+      [BlockType.WATER]: 3,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     },
     positiveZ: {
-      [BlockType.AIR]: 60,
-      [BlockType.DIRT]: 30,
-      [BlockType.STONE]: 5,
-      [BlockType.SAND]: 5,
+      [BlockType.AIR]: 75,
+      [BlockType.DIRT]: 20,
+      [BlockType.STONE]: 3,
+      [BlockType.SAND]: 2,
       [BlockType.WATER]: 0,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     },
     negativeZ: {
-      [BlockType.AIR]: 2,
-      [BlockType.DIRT]: 60,
-      [BlockType.STONE]: 30,
+      [BlockType.AIR]: 1,
+      [BlockType.DIRT]: 65,
+      [BlockType.STONE]: 28,
       [BlockType.SAND]: 3,
-      [BlockType.WATER]: 5,
+      [BlockType.WATER]: 3,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     }
   },
   [BlockType.STONE]: {
     horizontalNeighbors: {
-      [BlockType.AIR]: 5,
-      [BlockType.DIRT]: 15,
-      [BlockType.STONE]: 70,
+      [BlockType.AIR]: 7,
+      [BlockType.DIRT]: 18,
+      [BlockType.STONE]: 65,
       [BlockType.SAND]: 5,
       [BlockType.WATER]: 5,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     },
     positiveZ: {
-      [BlockType.AIR]: 30,
-      [BlockType.DIRT]: 40,
-      [BlockType.STONE]: 25,
+      [BlockType.AIR]: 45,
+      [BlockType.DIRT]: 35,
+      [BlockType.STONE]: 15,
       [BlockType.SAND]: 3,
       [BlockType.WATER]: 2,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     },
     negativeZ: {
-      [BlockType.AIR]: 1,
-      [BlockType.DIRT]: 10,
-      [BlockType.STONE]: 85,
+      [BlockType.AIR]: 0.5,
+      [BlockType.DIRT]: 8,
+      [BlockType.STONE]: 87,
       [BlockType.SAND]: 2,
-      [BlockType.WATER]: 2,
+      [BlockType.WATER]: 2.5,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     }
@@ -177,29 +177,29 @@ export const DEFAULT_PROBABILITY_MAPPINGS: Record<BlockType, Partial<BlockMetada
   },
   [BlockType.AIR]: {
     horizontalNeighbors: {
-      [BlockType.AIR]: 95,
-      [BlockType.DIRT]: 2,
-      [BlockType.STONE]: 1,
-      [BlockType.SAND]: 1,
-      [BlockType.WATER]: 1,
-      [BlockType.WOOD]: 0,
-      [BlockType.LEAVES]: 0
-    },
-    positiveZ: {
-      [BlockType.AIR]: 99,
-      [BlockType.DIRT]: 0.3,
-      [BlockType.STONE]: 0.2,
+      [BlockType.AIR]: 98,
+      [BlockType.DIRT]: 1,
+      [BlockType.STONE]: 0.5,
       [BlockType.SAND]: 0.3,
       [BlockType.WATER]: 0.2,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     },
+    positiveZ: {
+      [BlockType.AIR]: 99.5,
+      [BlockType.DIRT]: 0.2,
+      [BlockType.STONE]: 0.1,
+      [BlockType.SAND]: 0.1,
+      [BlockType.WATER]: 0.1,
+      [BlockType.WOOD]: 0,
+      [BlockType.LEAVES]: 0
+    },
     negativeZ: {
-      [BlockType.AIR]: 70,
-      [BlockType.DIRT]: 15,
-      [BlockType.STONE]: 8,
-      [BlockType.SAND]: 4,
-      [BlockType.WATER]: 3,
+      [BlockType.AIR]: 15,
+      [BlockType.DIRT]: 40,
+      [BlockType.STONE]: 30,
+      [BlockType.SAND]: 8,
+      [BlockType.WATER]: 7,
       [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0
     }

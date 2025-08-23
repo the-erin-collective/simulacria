@@ -1,0 +1,50 @@
+<div class="splash-container">
+  <div class="splash-content">
+    <!-- Game Logo/Title -->
+    <div class="game-title">
+      <h1>🧱 Minecraft Clone</h1>
+      <p class="subtitle">Powered by WebGL & IndexedDB</p>
+    </div>
+    
+    <!-- Loading State -->
+    <div class="loading-section" *ngIf="loading()">
+      <!-- Progress Bar -->
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div class="progress-fill" [style.width.%]="progress()"></div>
+        </div>
+        <span class="progress-text">{{ progress() }}%</span>
+      </div>
+      
+      <!-- Status Message -->
+      <p class="status-message" [class.error]="error()">{{ statusMessage() }}</p>
+      
+      <!-- Error Details -->
+      <div class="error-details" *ngIf="error()">
+        <p class="error-text">{{ error() }}</p>
+        <button class="retry-button" (click)="retryInitialization()">
+          🔄 Retry Initialization
+        </button>
+        <div class="error-help">
+          <p><strong>Troubleshooting:</strong></p>
+          <ul>
+            <li>Close other browser tabs with this game</li>
+            <li>Clear browser cache and reload</li>
+            <li>Make sure you have enough storage space</li>
+            <li>Try using an incognito/private window</li>
+          </ul>
+        </div>
+      </div>
+      
+      <!-- Loading Animation -->
+      <div class="loading-animation" *ngIf="!error()">
+        <div class="cube"></div>
+        <div class="cube"></div>
+        <div class="cube"></div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Background Animation -->
+  <div class="background-pattern"></div>
+</div>

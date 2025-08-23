@@ -10,10 +10,70 @@ import { take } from 'rxjs/operators';
 export class PlayerSpawningService {
   constructor(private store: Store) {}
 
+  // Try to use the optimized spawn chunk (chunk 0,0,0) if it exists
+  private async tryOptimizedSpawnChunk(): Promise<Vector3 | null> {
+    console.log('🎯 Checking for optimized spawn chunk...');
+    
+    // Check for optimized spawn chunk at the center of chunk (0,0,0)
+    // Spawn chunk has dirt blocks at Z=0-7, air at Z=8-15
+    // Best spawn position is at (8, 8, 8.9) - standing on dirt platform
+    const centerX = 8; // Middle of 16x16 chunk
+    const centerY = 8; // Middle of 16x16 chunk 
+    const surfaceZ = 7;   // Top of dirt layer
+    const spawnZ = surfaceZ + 1.9; // Surface + gap + player height offset
+    
+    console.log(`🎯 Checking optimized spawn chunk at (${centerX}, ${centerY}, ${spawnZ})...`);
+    
+    try {
+      // Check multiple positions to confirm this is the optimized chunk
+      let validPositions = 0;
+      const testPositions = [
+        { x: centerX, y: centerY },
+        { x: centerX - 2, y: centerY },
+        { x: centerX + 2, y: centerY },
+        { x: centerX, y: centerY - 2 },
+        { x: centerX, y: centerY + 2 }
+      ];
+      
+      for (const pos of testPositions) {
+        const surfaceBlock = await this.getBlockAtPosition(pos.x, pos.y, surfaceZ);
+        const aboveBlock = await this.getBlockAtPosition(pos.x, pos.y, surfaceZ + 1);
+        
+        const hasDirtSurface = surfaceBlock && surfaceBlock.metadata.blockType === BlockType.DIRT;
+        const hasAirAbove = (!aboveBlock || aboveBlock.metadata.blockType === BlockType.AIR);
+        
+        if (hasDirtSurface && hasAirAbove) {
+          validPositions++;
+        }
+      }
+      
+      // If we found at least 3 out of 5 valid positions, consider it optimized
+      if (validPositions >= 3) {
+        const spawnPos = { x: centerX, y: centerY, z: spawnZ };
+        console.log(`✅ Found optimized spawn chunk! Valid positions: ${validPositions}/5`);
+        console.log(`✅ Spawning at (${centerX}, ${centerY}, ${spawnZ})`);
+        return spawnPos;
+      } else {
+        console.log(`❌ Optimized spawn chunk pattern not found: valid=${validPositions}/5`);
+      }
+    } catch (error) {
+      console.warn('Error checking optimized spawn chunk:', error);
+    }
+    
+    return null;
+  }
+
   async findSafeSpawnPosition(): Promise<Vector3> {
     console.log('Finding safe spawn position...');
     
-    // For new worlds, find a surface position based on generated terrain
+    // Priority 1: Use optimized spawn chunk if available
+    const spawnChunkPosition = await this.tryOptimizedSpawnChunk();
+    if (spawnChunkPosition) {
+      console.log(`Using optimized spawn chunk at: (${spawnChunkPosition.x}, ${spawnChunkPosition.y}, ${spawnChunkPosition.z})`);
+      return spawnChunkPosition;
+    }
+    
+    // Priority 2: For new worlds, find a surface position based on generated terrain
     // Search in a spiral pattern around origin
     const searchRadius = 20;
     const maxHeight = 50;
@@ -45,7 +105,10 @@ export class PlayerSpawningService {
     // Fallback 1: Use terrain height detection at origin
     const terrainHeight = await this.findTerrainHeight(0, 0, maxHeight, minHeight);
     if (terrainHeight !== null) {
-      const terrainSpawn = { x: 0, y: 0, z: terrainHeight + 1 + 0.9 };
+      // Position player properly above the terrain
+      // PhysicsCharacterController center should be 1.8/2 = 0.9 above the ground
+      // We want the player's feet to be just above the terrain block
+      const terrainSpawn = { x: 0, y: 0, z: terrainHeight + 1.9 }; // terrain block + 0.1 gap + 1.8 player height
       if (await this.isPositionSafe(terrainSpawn)) {
         console.log(`Using terrain-based spawn at: (${terrainSpawn.x}, ${terrainSpawn.y}, ${terrainSpawn.z})`);
         return terrainSpawn;
@@ -54,16 +117,16 @@ export class PlayerSpawningService {
     
     // Fallback 2: Try origin area with higher spawn position
     for (let z = maxHeight; z >= minHeight; z--) {
-      const testPos = { x: 0, y: 0, z };
+      const testPos = { x: 0, y: 0, z: z + 1.9 }; // Add player height offset
       if (await this.isPositionSafe(testPos)) {
-        console.log(`Using fallback spawn at origin: (0, 0, ${z})`);
+        console.log(`Using fallback spawn at origin: (0, 0, ${z + 1.9})`);
         return testPos;
       }
     }
     
-    // Fallback 3: Spawn high above ground (emergency)
+    // Fallback 3: Spawn high above ground (emergency) with proper physics positioning
     console.warn('Using emergency high spawn position');
-    return { x: 0, y: 0, z: 30 }; // Spawn 30 blocks above origin with physics integration
+    return { x: 0, y: 0, z: 32 }; // Spawn high above origin - physics controller center at 32 units
   }
 
   private async findSurfaceAt(x: number, y: number, maxZ: number, minZ: number): Promise<Vector3 | null> {
@@ -84,11 +147,11 @@ export class PlayerSpawningService {
         const aboveAboveIsAir = !blockAboveAboveCurrentZ || blockAboveAboveCurrentZ.metadata.blockType === BlockType.AIR;
         
         if (currentIsSolid && aboveIsAir && aboveAboveIsAir) {
-          // Calculate spawn position accounting for physics body center
-          // Physics body center is at player center, so we need to position player properly
-          // Player height is 1.8, so center is 0.9 above feet
-          // Spawn the player so their feet are on the surface block
-          const spawnZ = z + 1 + 0.9; // Surface block + 1 block clearance + half player height for center
+          // Position player physics controller center properly
+          // PhysicsCharacterController center should be 1.8/2 = 0.9 above the surface
+          // We want the player to stand ON the surface block, not inside it
+          // So: surface block height (z) + 0.1 gap + 1.8 player height = z + 1.9
+          const spawnZ = z + 1.9; // Surface block + gap + controller center offset
           console.log(`Found valid surface at (${x}, ${y}, ${spawnZ}) on solid block at z=${z}`);
           return { x, y, z: spawnZ };
         }
@@ -240,9 +303,9 @@ export class PlayerSpawningService {
     }
     
     // Position player physics body center so feet touch the ground
-    // Physics center is at player center (0.9 blocks above feet)
-    // Add 1 block clearance above terrain for safety
-    const spawnZ = terrainHeight + 1 + 0.9;
+    // Physics controller center should be positioned 1.9 units above terrain
+    // This accounts for: terrain block + small gap (0.1) + player height (1.8)
+    const spawnZ = terrainHeight + 1.9;
     
     const spawnPos = { x, y, z: spawnZ };
     

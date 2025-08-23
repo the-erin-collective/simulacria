@@ -70,6 +70,7 @@
   <!-- Settings Modal -->
   <app-settings-modal
     [visible]="showSettings"
+    [showReturnToMenu]="true"
     (close)="closeSettings()"
     (saveSettings)="applySettings($event)"
     (returnToMainMenu)="returnToMenu()">

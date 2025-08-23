@@ -1,5 +1,5 @@
-<div class="settings-modal" *ngIf="visible">
-  <div class="settings-content">
+<div class="modal-overlay" *ngIf="visible" (click)="closeModal()">
+  <div class="settings-content" (click)="$event.stopPropagation()">
     <div class="modal-header">
       <h2>Game Settings</h2>
       <button class="close-btn" (click)="closeModal()" aria-label="Close Settings">&times;</button>
@@ -128,7 +128,7 @@
     
     <div class="button-group">
       <button (click)="saveAndClose()" class="primary-button">Save & Close</button>
-      <button (click)="returnToMenu()" class="menu-button">Return to Menu</button>
+      <button (click)="returnToMenu()" class="menu-button" *ngIf="showReturnToMenu">Return to Menu</button>
     </div>
   </div>
 </div>

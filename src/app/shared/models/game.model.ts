@@ -82,4 +82,3 @@ export const DEFAULT_SETTINGS: GameSettings = {
 
 export const RENDER_DISTANCE = 50;
 export const WORLD_HEIGHT = 100;
-export const GENERATION_LIMIT = 1000;

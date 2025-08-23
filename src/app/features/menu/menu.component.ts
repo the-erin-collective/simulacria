@@ -21,7 +21,7 @@ import * as UISelectors from '../../store/ui/ui.selectors';
   styleUrls: ['./menu.component.scss']
 })
 export class MenuComponent implements OnInit, OnDestroy {
-  showSettingsModal = false;
+  showSettings = false;
   showAboutModal = false;
   showLoadWorldModal = false;
   availableWorlds: WorldInfo[] = [];
@@ -62,27 +62,70 @@ export class MenuComponent implements OnInit, OnDestroy {
   }
 
   startNewWorld(): void {
+    console.log('🔵 startNewWorld() called');
+    
+    // Clear any previous loading states
+    this.store.dispatch(UIActions.stopLoading());
+    
     this.worldService.createNewWorld()
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (newWorld) => {
-          console.log('New world created:', newWorld);
+          console.log('🔵 New world created successfully:', newWorld);
+          
+          // Set game mode first, then navigate
+          console.log('🔵 Dispatching setGameMode playing');
           this.store.dispatch(setGameMode({ mode: 'playing' }));
-          // Note: Don't stop loading here - let the game component handle the transition
-          this.router.navigate(['/game']);
+          
+          // Wait a moment for the store to update, then navigate
+          setTimeout(() => {
+            console.log('🔵 About to navigate to /game');
+            this.router.navigate(['/game']).then((navigationSuccess) => {
+              if (navigationSuccess) {
+                console.log('🔵 Navigation to game completed successfully');
+              } else {
+                console.error('🔴 Navigation to game failed - router returned false');
+              }
+              // Ensure loading state is cleared after navigation attempt
+              setTimeout(() => {
+                this.store.dispatch(UIActions.stopLoading());
+              }, 100);
+            }).catch((error) => {
+              console.error('🔴 Navigation to game failed with error:', error);
+              this.store.dispatch(UIActions.stopLoading());
+            });
+          }, 50);
         },
         error: (error) => {
-          console.error('Failed to create new world:', error);
-          // Only stop loading on error
+          console.error('🔴 Failed to create new world:', error);
+          
+          // Stop loading and show error message
           this.store.dispatch(UIActions.stopLoading());
+          
+          // Show user-friendly error message
+          const errorMessage = this.getErrorMessage(error);
+          alert(`Failed to create new world: ${errorMessage}\n\nPlease try refreshing the page or check if your browser supports local storage.`);
         }
       });
   }
+  
+  private getErrorMessage(error: any): string {
+    if (error?.message?.includes('timeout')) {
+      return 'Operation timed out. This may be due to browser storage issues.';
+    }
+    if (error?.message?.includes('IndexedDB not supported')) {
+      return 'Your browser does not support local storage features required for this game.';
+    }
+    if (error?.message?.includes('Database')) {
+      return 'Local storage system is not working properly.';
+    }
+    return error?.message || 'Unknown error occurred';
+  }
 
-  showSettings(): void {
+  openSettings(): void {
     console.log('Settings button clicked! Opening settings modal');
-    this.showSettingsModal = true;
-    console.log('showSettingsModal set to:', this.showSettingsModal);
+    this.showSettings = true;
+    console.log('showSettings set to:', this.showSettings);
   }
 
   showAbout(): void {
@@ -92,7 +135,9 @@ export class MenuComponent implements OnInit, OnDestroy {
   }
   
   closeSettings(): void {
-    this.showSettingsModal = false;
+    console.log('Menu closeSettings() called');
+    this.showSettings = false;
+    console.log('showSettings set to:', this.showSettings);
   }
   
   closeAbout(): void {
@@ -124,18 +169,37 @@ export class MenuComponent implements OnInit, OnDestroy {
   }
   
   async loadAvailableWorlds(): Promise<void> {
-    this.worldService.loadAvailableWorlds()
-      .pipe(takeUntil(this.destroy$))
-      .subscribe({
-        next: (worlds) => {
-          this.availableWorlds = worlds;
-          console.log('Available worlds loaded:', this.availableWorlds);
-        },
-        error: (error) => {
-          console.error('Failed to load available worlds:', error);
-          this.availableWorlds = [];
+    try {
+      this.availableWorlds = []; // Clear existing worlds
+      
+      const worldsSubscription = this.worldService.loadAvailableWorlds()
+        .pipe(takeUntil(this.destroy$))
+        .subscribe({
+          next: (worlds) => {
+            this.availableWorlds = worlds;
+            console.log('Available worlds loaded:', this.availableWorlds);
+            worldsSubscription.unsubscribe(); // Clean up subscription
+          },
+          error: (error) => {
+            console.error('Failed to load available worlds:', error);
+            this.availableWorlds = [];
+            worldsSubscription.unsubscribe(); // Clean up subscription
+            // Don't show error to user, just display "no worlds found"
+          }
+        });
+      
+      // Add a local timeout as additional protection
+      setTimeout(() => {
+        if (this.availableWorlds.length === 0) {
+          console.warn('World loading timed out, showing empty state');
+          worldsSubscription.unsubscribe();
         }
-      });
+      }, 6000); // 6 second fallback timeout
+      
+    } catch (error) {
+      console.error('Failed to initialize world loading:', error);
+      this.availableWorlds = [];
+    }
   }
   
   selectWorld(world: WorldInfo): void {
@@ -145,29 +209,52 @@ export class MenuComponent implements OnInit, OnDestroy {
   
   async loadSelectedWorld(world: WorldInfo): Promise<void> {
     this.selectedWorldId = world.id;
+    console.log('🔵 loadSelectedWorld() called for world:', world.name);
     
     this.worldService.loadWorld(world.id, world.name)
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (loadedWorld) => {
-          console.log('World loaded:', loadedWorld);
+          console.log('🔵 World loaded successfully:', loadedWorld);
           
           // Update last played time
           world.lastPlayed = Date.now();
           
-          // Navigate to game
+          // Set game mode first, then navigate
+          console.log('🔵 Dispatching setGameMode playing for loaded world');
           this.store.dispatch(setGameMode({ mode: 'playing' }));
-          // Note: Don't stop loading here - let the game component handle the transition
-          this.router.navigate(['/game']);
           
-          // Close modal
-          this.showLoadWorldModal = false;
+          // Wait a moment for the store to update, then navigate
+          setTimeout(() => {
+            console.log('🔵 About to navigate to /game for loaded world');
+            this.router.navigate(['/game']).then((navigationSuccess) => {
+              if (navigationSuccess) {
+                console.log('🔵 Navigation to game completed successfully for loaded world');
+                // Close modal
+                this.showLoadWorldModal = false;
+              } else {
+                console.error('🔴 Navigation to game failed - router returned false');
+              }
+              // Ensure loading state is cleared after navigation attempt
+              setTimeout(() => {
+                this.store.dispatch(UIActions.stopLoading());
+              }, 100);
+            }).catch((error) => {
+              console.error('🔴 Navigation to game failed with error:', error);
+              this.store.dispatch(UIActions.stopLoading());
+            });
+          }, 50);
         },
         error: (error) => {
-          console.error('Failed to load world:', error);
+          console.error('🔴 Failed to load world:', error);
           this.selectedWorldId = null;
-          // Only stop loading on error
+          
+          // Stop loading and show error message
           this.store.dispatch(UIActions.stopLoading());
+          
+          // Show user-friendly error message
+          const errorMessage = this.getErrorMessage(error);
+          alert(`Failed to load world "${world.name}": ${errorMessage}\n\nPlease try refreshing the page or check if your browser supports local storage.`);
         }
       });
   }

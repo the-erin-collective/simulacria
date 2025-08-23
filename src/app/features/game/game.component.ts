@@ -14,10 +14,11 @@ import { selectGameMode, selectTargetBlock, selectIsBreaking, selectBreakingProg
 import { selectSelectedItem, selectEquippedTool, selectToolbarItems } from '../../store/player/player.selectors';
 import { generateWorld, worldGenerated, updatePlayerPosition } from '../../store/world/world.actions';
 import { setTargetBlock, setGameMode, startLoading, updateLoadingProgress, stopLoading } from '../../store/ui/ui.actions';
+import * as UIActions from '../../store/ui/ui.actions';
 import { selectInventorySlot } from '../../store/player/player.actions';
 import { Block, Vector3, BlockType } from '../../shared/models/block.model';
 import { InventoryItem } from '../../shared/models/player.model';
-import { GENERATION_LIMIT, GameSettings, DEFAULT_SETTINGS } from '../../shared/models/game.model';
+import { GameSettings, DEFAULT_SETTINGS } from '../../shared/models/game.model';
 import { InventoryComponent } from '../inventory/inventory.component';
 import { SettingsModalComponent } from '../settings/settings-modal.component';
 import { LoadingOverlayComponent } from '../ui/loading-overlay.component';
@@ -105,6 +106,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnInit(): void {
+    console.log('🟢 Game component ngOnInit() called');
     // Load settings
     this.loadSettings();
     
@@ -139,63 +141,75 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   async ngAfterViewInit(): Promise<void> {
+    console.log('🟪 Game component ngAfterViewInit() called');
     // Return early if not in browser (during SSR)
     if (!this.isBrowser) {
       console.warn('Game initialization skipped in server environment');
       return;
     }
     
+    // Wrap initialization in setTimeout to avoid Angular change detection issues
+    setTimeout(async () => {
+      await this.initializeGameAsync();
+    }, 0);
+  }
+  
+  private async initializeGameAsync(): Promise<void> {
     try {
-      // Start loading if not already loading
-      this.store.select(selectIsLoading).pipe(take(1)).subscribe(isLoading => {
-        if (!isLoading) {
-          this.store.dispatch(startLoading({ 
-            operation: 'game_initialization', 
-            message: 'Initializing game...', 
-            showProgress: true 
-          }));
-        }
-      });
+      console.log('🟪 Starting game initialization...');
+      // Clear any existing loading state and start our own
+      this.store.dispatch(UIActions.stopLoading());
+      await new Promise(resolve => setTimeout(resolve, 50));
       
-      // Initialize BabylonJS (wrapped in setTimeout to avoid change detection error)
-      setTimeout(() => {
-        this.store.dispatch(updateLoadingProgress({ progress: 10, details: 'Starting 3D engine...' }));
-      });
+      this.store.dispatch(startLoading({ 
+        operation: 'game_initialization', 
+        message: 'Initializing game...', 
+        showProgress: true 
+      }));
+      
+      // Initialize BabylonJS
+      this.store.dispatch(updateLoadingProgress({ progress: 10, details: 'Starting 3D engine...' }));
+      console.log('🟪 Initializing BabylonJS engine...');
       await this.babylonService.initializeEngine(this.canvasRef);
       
       // Generate initial world with surface spawn
       this.store.dispatch(updateLoadingProgress({ progress: 30, details: 'Generating world...' }));
+      console.log('🟪 Generating initial world...');
       await this.generateInitialWorld();
       
       // Setup input handlers
       this.store.dispatch(updateLoadingProgress({ progress: 80, details: 'Setting up controls...' }));
+      console.log('🟪 Setting up input handlers...');
       this.setupInputHandlers();
       
       // Start game loop
       this.store.dispatch(updateLoadingProgress({ progress: 90, details: 'Starting game...' }));
+      console.log('🟪 Starting game loop...');
       this.startGameLoop();
       
       // Final initialization steps
       this.store.dispatch(updateLoadingProgress({ progress: 95, details: 'Finalizing...' }));
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       // Complete loading
       this.store.dispatch(updateLoadingProgress({ progress: 100, details: 'Game ready!' }));
       
       // Delay the stop loading to ensure change detection cycle completes
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 100));
       this.store.dispatch(stopLoading());
       
+      console.log('🟢 Game initialization completed successfully!');
+      
     } catch (error) {
-      console.error('Game initialization failed:', error);
+      console.error('🔴 Game initialization failed:', error);
       this.store.dispatch(updateLoadingProgress({ progress: 100, details: 'Initialization failed' }));
-      setTimeout(() => {
-        this.store.dispatch(stopLoading());
-      }, 100);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      this.store.dispatch(stopLoading());
     }
   }
 
   ngOnDestroy(): void {
+    console.log('🔴 Game component ngOnDestroy() called - component is being destroyed!');
     this.subscriptions.unsubscribe();
     if (this.gameLoop) {
       cancelAnimationFrame(this.gameLoop);
@@ -227,8 +241,20 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       console.log('Found existing world, loading...');
       this.store.dispatch(updateLoadingProgress({ progress: 40, details: 'Loading existing world...' }));
       
+      // Check if the world actually has any chunks
+      const worldId = this.chunkManagerService.getCurrentWorldId();
+      const chunkCount = await this.getChunkCount(worldId);
+      console.log(`World has ${chunkCount} saved chunks`);
+      
+      // If world exists but has no chunks, generate the spawn area
+      if (chunkCount === 0) {
+        console.log('World has no chunks - generating initial spawn area...');
+        this.store.dispatch(updateLoadingProgress({ progress: 45, details: 'Generating spawn area...' }));
+        await this.generateSpawnAreaForExistingWorld();
+      }
+      
       // Load player position from database
-      const playerState = await this.dbService.loadPlayerState();
+      const playerState = await this.dbService.loadPlayerState(worldId);
       let spawnPosition: Vector3;
       
       if (playerState && playerState.position) {
@@ -260,15 +286,48 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
     this.setupAutoSave();
   }
   
+  private async getChunkCount(worldId: string): Promise<number> {
+    try {
+      // Get chunk IDs from the database service to count chunks
+      const chunkIds = await this.dbService.getChunkIds(worldId);
+      return chunkIds.length;
+    } catch (error) {
+      console.warn('Failed to get chunk count, assuming 0:', error);
+      return 0;
+    }
+  }
+  
+  private async generateSpawnAreaForExistingWorld(): Promise<void> {
+    console.log('🎯 Generating spawn area for existing world...');
+    
+    // Generate terrain using terrain service with spawn chunk optimization
+    const centerPosition = { x: 0, y: 0, z: 0 }; // Generate at origin to trigger spawn chunk optimization
+    const generatedBlocks = this.terrainService.generateWorld(centerPosition, 32);
+    
+    console.log(`Generated ${generatedBlocks.size} blocks for spawn area`);
+    
+    // Import generated world into chunk-based storage
+    await this.chunkManagerService.importFromFlatWorld(generatedBlocks);
+    
+    // Dispatch the generated blocks to the store immediately
+    this.store.dispatch(worldGenerated({ blocks: generatedBlocks }));
+    
+    // Wait for the store to update
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    console.log('✅ Spawn area generation completed for existing world');
+  }
+  
   private async generateNewWorld(): Promise<void> {
+    // Create a new world
     // Create a new world
     this.store.dispatch(updateLoadingProgress({ progress: 40, details: 'Creating new world...' }));
     await this.chunkManagerService.createNewWorld();
     
-    // Generate terrain using terrain service
-    this.store.dispatch(updateLoadingProgress({ progress: 45, details: 'Generating terrain...' }));
-    const centerPosition = { x: 0, y: 0, z: 10 }; // Start generation at a reasonable height
-    const generatedBlocks = this.terrainService.generateWorld(centerPosition, GENERATION_LIMIT);
+    // Generate terrain using terrain service with reasonable radius (32 blocks = 64 block diameter)
+    this.store.dispatch(updateLoadingProgress({ progress: 45, details: 'Generating optimized spawn area...' }));
+    const centerPosition = { x: 0, y: 0, z: 0 }; // Generate at origin to trigger spawn chunk optimization
+    const generatedBlocks = this.terrainService.generateWorld(centerPosition, 32);
     
     console.log(`Generated ${generatedBlocks.size} blocks`);
     
@@ -315,6 +374,74 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   // Find a safe spawn position using the generated world blocks directly
   private async findSafeSpawnPosition(worldBlocks: Map<string, Block>): Promise<Vector3> {
     console.log('Finding safe spawn position from generated blocks...');
+    
+    // Check if this is our optimized spawn chunk (has predictable structure)
+    const isOptimizedSpawn = this.isOptimizedSpawnChunk(worldBlocks);
+    if (isOptimizedSpawn) {
+      console.log('🎯 Using optimized spawn position for spawn chunk');
+      // For optimized spawn chunk, place player at center of chunk standing on dirt platform
+      // Use z=8.9 which puts the physics controller center 1.9 units above surface z=7
+      const spawnPosition = { x: 8, y: 8, z: 8.9 };
+      console.log(`✅ Optimized spawn at (${spawnPosition.x}, ${spawnPosition.y}, ${spawnPosition.z})`);
+      return spawnPosition;
+    }
+    
+    // Original spawn finding logic for complex terrain
+    return this.findSpawnInComplexTerrain(worldBlocks);
+  }
+  
+  private isOptimizedSpawnChunk(worldBlocks: Map<string, Block>): boolean {
+    // Check if this looks like our optimized spawn chunk
+    // Look for the characteristic pattern: dirt at z=7, air at z=8
+    // Check the center of the chunk (8, 8) since chunk goes from 0-15
+    const centerX = 8;
+    const centerY = 8;
+    const surfaceZ = 7;
+    const airZ = 8;
+    
+    const dirtBlock = worldBlocks.get(`${centerX},${centerY},${surfaceZ}`);
+    const airBlock = worldBlocks.get(`${centerX},${centerY},${airZ}`);
+    
+    const hasOptimizedPattern = (
+      dirtBlock?.metadata.blockType === BlockType.DIRT &&
+      airBlock?.metadata.blockType === BlockType.AIR
+    );
+    
+    console.log(`🔍 Checking optimized spawn chunk pattern at (${centerX}, ${centerY}):`);
+    console.log(`  - Dirt at Z=${surfaceZ}: ${dirtBlock?.metadata.blockType || 'none'}`);
+    console.log(`  - Air at Z=${airZ}: ${airBlock?.metadata.blockType || 'none'}`);
+    console.log(`  - Has optimized pattern: ${hasOptimizedPattern}`);
+    
+    // Also check if we have the expected dirt foundation
+    if (!hasOptimizedPattern) {
+      // Check multiple positions to confirm this is the optimized chunk
+      let dirtCount = 0;
+      let airCount = 0;
+      
+      // Sample a few positions in the chunk
+      for (let x = 4; x <= 12; x += 4) {
+        for (let y = 4; y <= 12; y += 4) {
+          const dirtKey = `${x},${y},7`;
+          const airKey = `${x},${y},8`;
+          
+          const dirt = worldBlocks.get(dirtKey);
+          const air = worldBlocks.get(airKey);
+          
+          if (dirt?.metadata.blockType === BlockType.DIRT) dirtCount++;
+          if (air?.metadata.blockType === BlockType.AIR) airCount++;
+        }
+      }
+      
+      const hasPattern = dirtCount >= 6 && airCount >= 6; // At least 6 out of 9 samples
+      console.log(`  - Secondary check: dirt=${dirtCount}/9, air=${airCount}/9, pattern=${hasPattern}`);
+      return hasPattern;
+    }
+    
+    return hasOptimizedPattern;
+  }
+  
+  private findSpawnInComplexTerrain(worldBlocks: Map<string, Block>): Vector3 {
+    console.log('Using complex terrain spawn finding algorithm...');
     
     // Search in a spiral pattern around origin for a safe spawn
     const searchRadius = 20;
@@ -421,6 +548,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       this.store.select(selectSelectedItem).pipe(take(1)).subscribe(selectedItem => {
         this.store.select(selectToolbarItems).pipe(take(1)).subscribe(toolbarItems => {
           // Save player state to database
+          const worldId = this.chunkManagerService.getCurrentWorldId();
           this.dbService.savePlayerState({
             position,
             rotation: { x: 0, y: 0, z: 0 }, // Default rotation
@@ -428,7 +556,7 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
             selectedSlot: this.selectedSlot,
             health: 10, // Default full health
             maxHealth: 10
-          });
+          }, worldId);
         });
       });
     }
@@ -458,28 +586,19 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
         playerPosition.z
       );
       
-      // Debug: Log block count to help diagnose the issue
+      // Enhanced fall protection system
       if (visibleBlocks.size === 0) {
         console.warn(`No visible blocks found at player position (${playerPosition.x}, ${playerPosition.y}, ${playerPosition.z})`);
-        
-        // Try to get nearby blocks in a wider search
-        const nearbyBlocks = await this.chunkManagerService.getVisibleBlocks(
-          0, 0, 0 // Search around world origin
-        );
-        
-        if (nearbyBlocks.size > 0) {
-          // If we find blocks at origin but not at player position, teleport player back
-          console.log('Teleporting player back to world origin - found blocks at origin');
-          const safePosition = { x: 0, y: 0, z: 15 };
-          
-          // Force teleport with physics reset
-          this.babylonService.forceSpawnPlayer(safePosition);
-          this.store.dispatch(updatePlayerPosition({ position: safePosition }));
-          
-          // Immediately load and dispatch the blocks around origin
-          this.store.dispatch(worldGenerated({ blocks: nearbyBlocks }));
-          return;
-        }
+        await this.handlePlayerFallProtection(playerPosition);
+        return;
+      }
+      
+      // Check if player is falling too far below the world
+      const FALL_LIMIT = -50; // If player falls 50 blocks below world origin
+      if (playerPosition.z < FALL_LIMIT) {
+        console.warn(`Player fell too far (z=${playerPosition.z}), activating fall protection`);
+        await this.handlePlayerFallProtection(playerPosition);
+        return;
       }
       
       // Dispatch blocks to store (this will trigger the visibleBlocks$ subscription)
@@ -487,7 +606,61 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
       
     } catch (error) {
       console.error('Failed to update visible blocks:', error);
+      // On error, also try fall protection
+      await this.handlePlayerFallProtection(playerPosition);
     }
+  }
+  
+  // Enhanced fall protection system
+  private async handlePlayerFallProtection(currentPosition: Vector3): Promise<void> {
+    console.log('Activating enhanced fall protection system...');
+    
+    // First try: Look for blocks around world origin
+    const originBlocks = await this.chunkManagerService.getVisibleBlocks(0, 0, 0);
+    
+    if (originBlocks.size > 0) {
+      console.log('Found blocks at world origin, finding safe spawn there');
+      const safeSpawn = await this.playerSpawningService.getGroundSpawnPosition(0, 0);
+      if (safeSpawn) {
+        await this.teleportPlayerToSafePosition(safeSpawn, 'world origin');
+        this.store.dispatch(worldGenerated({ blocks: originBlocks }));
+        return;
+      }
+    }
+    
+    // Second try: Generate new terrain at origin if no blocks found
+    console.log('No blocks at origin, generating new terrain...');
+    const newTerrain = this.terrainService.generateWorld({ x: 0, y: 0, z: 0 }, 24); // Smaller radius for emergency terrain
+    
+    if (newTerrain.size > 0) {
+      // Save the generated blocks to chunk manager
+      await this.chunkManagerService.saveBulkBlocks(newTerrain);
+      
+      // Find safe spawn in new terrain
+      const safeSpawn = await this.findSafeSpawnPosition(newTerrain);
+      await this.teleportPlayerToSafePosition(safeSpawn, 'newly generated terrain');
+      this.store.dispatch(worldGenerated({ blocks: newTerrain }));
+      return;
+    }
+    
+    // Final fallback: Emergency high spawn
+    console.warn('All fall protection methods failed, using emergency spawn');
+    const emergencySpawn = { x: 0, y: 0, z: 30 };
+    await this.teleportPlayerToSafePosition(emergencySpawn, 'emergency high altitude');
+  }
+  
+  // Safe teleport with physics reset
+  private async teleportPlayerToSafePosition(position: Vector3, reason: string): Promise<void> {
+    console.log(`Teleporting player to safe position at (${position.x}, ${position.y}, ${position.z}) - ${reason}`);
+    
+    // Validate and adjust spawn position if needed
+    const validatedPosition = await this.playerSpawningService.validateSpawnPosition(position);
+    
+    // Force teleport with physics reset
+    this.babylonService.forceSpawnPlayer(validatedPosition);
+    this.store.dispatch(updatePlayerPosition({ position: validatedPosition }));
+    
+    console.log(`Player successfully teleported to: (${validatedPosition.x}, ${validatedPosition.y}, ${validatedPosition.z})`);
   }
 
   private setupInputHandlers(): void {
@@ -692,7 +865,9 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
   
   closeSettings(): void {
+    console.log('Game closeSettings() called');
     this.showSettings = false;
+    console.log('showSettings set to:', this.showSettings);
     // Resume game
   }
   
@@ -713,8 +888,11 @@ export class GameComponent implements OnInit, OnDestroy, AfterViewInit {
   }
   
   returnToMenu(): void {
+    console.log('🔴 returnToMenu() called from game component');
+    console.trace('returnToMenu call stack:');
     // Save game state before returning to menu
     this.chunkManagerService.saveAllChunks().then(() => {
+      console.log('🔴 About to dispatch setGameMode menu and navigate to /');
       this.store.dispatch(setGameMode({ mode: 'menu' }));
       this.router.navigate(['/']);
     });

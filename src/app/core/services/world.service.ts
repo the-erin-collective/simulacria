@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { Store } from '@ngrx/store';
-import { Observable, of, delay, throwError } from 'rxjs';
-import { map, catchError, tap } from 'rxjs/operators';
+import { Observable, from, throwError, of, firstValueFrom } from 'rxjs';
+import { map, catchError, tap, switchMap } from 'rxjs/operators';
 import { DBService } from './db.service';
 import * as WorldActions from '../../store/world/world.actions';
 import * as UIActions from '../../store/ui/ui.actions';
@@ -34,32 +34,22 @@ export class WorldService {
       showProgress: false
     }));
 
-    // Simulate loading with actual database call
-    return of([
-      {
-        id: '1',
-        name: 'My First World',
-        created: Date.now() - 86400000, // 1 day ago
-        lastPlayed: Date.now() - 3600000 // 1 hour ago
-      },
-      {
-        id: '2',
-        name: 'Adventure World',
-        created: Date.now() - 172800000, // 2 days ago
-        lastPlayed: Date.now() - 7200000 // 2 hours ago
-      },
-      {
-        id: '3',
-        name: 'Creative Build',
-        created: Date.now() - 259200000, // 3 days ago
-        lastPlayed: Date.now() - 86400000 // 1 day ago
-      }
-    ]).pipe(
-      delay(800), // Simulate network delay
+    // Database is already initialized at app startup, no timeout needed
+    return from(this.dbService.loadAllWorlds()).pipe(
+      map(worlds => worlds.map(world => ({
+        id: world.id,
+        name: world.name,
+        created: world.created,
+        lastPlayed: world.lastPlayed,
+        size: world.metadata?.blockCount || 0,
+        settings: world.settings
+      }))),
       tap(() => this.store.dispatch(UIActions.stopLoading())),
       catchError((error) => {
+        console.error('Failed to load worlds from database:', error);
         this.store.dispatch(UIActions.setLoadingError({ error: 'Failed to load worlds' }));
-        return throwError(error);
+        // Return empty array on error to prevent hanging
+        return of([]);
       })
     );
   }
@@ -75,8 +65,8 @@ export class WorldService {
       showProgress: true
     }));
 
-    // Simulate multi-step loading process
-    return this.simulateWorldLoading(worldId, worldName);
+    // Database is already initialized, no timeout needed
+    return this.performWorldLoad(worldId, worldName);
   }
 
   /**
@@ -92,7 +82,8 @@ export class WorldService {
       showProgress: true
     }));
 
-    return this.simulateWorldCreation(finalWorldName, settings);
+    // Database is already initialized, no timeout needed
+    return this.performWorldCreation(finalWorldName, settings);
   }
 
   /**
@@ -106,22 +97,21 @@ export class WorldService {
       showProgress: false
     }));
 
-    return of(null).pipe(
-      delay(1000), // Simulate deletion time
+    return from(this.dbService.deleteWorld(worldId)).pipe(
       tap(() => {
+        console.log(`Successfully deleted world: ${worldName} (${worldId})`);
         this.store.dispatch(WorldActions.worldDeleted({ worldId }));
         this.store.dispatch(UIActions.stopLoading());
       }),
-      map(() => void 0),
       catchError((error) => {
+        console.error(`Failed to delete world ${worldName}:`, error);
         this.store.dispatch(UIActions.setLoadingError({ error: 'Failed to delete world' }));
         return throwError(error);
       })
     );
   }
 
-  private simulateWorldLoading(worldId: string, worldName: string): Observable<any> {
-    let progress = 0;
+  private performWorldLoad(worldId: string, worldName: string): Observable<any> {
     const steps = [
       { progress: 20, details: 'Loading world metadata...' },
       { progress: 40, details: 'Loading terrain data...' },
@@ -133,19 +123,32 @@ export class WorldService {
     return new Observable(observer => {
       let currentStep = 0;
       
-      const processStep = () => {
+      const processStep = async () => {
         if (currentStep >= steps.length) {
-          // World loading complete
-          setTimeout(() => {
-            this.store.dispatch(WorldActions.worldLoaded({
-              worldData: { id: worldId, name: worldName, blocks: new Map() },
-              worldId
-            }));
-            // Don't stop loading here - let game component handle the transition
-            // this.store.dispatch(UIActions.stopLoading());
-            observer.next({ worldId, worldName });
-            observer.complete();
-          }, 300);
+          try {
+            // Actually load world from database
+            const world = await this.dbService.loadWorld(worldId);
+            if (!world) {
+              observer.error(new Error(`World ${worldId} not found`));
+              return;
+            }
+
+            // Update last played timestamp
+            await this.dbService.updateWorldLastPlayed(worldId);
+
+            // World loading complete
+            setTimeout(() => {
+              this.store.dispatch(WorldActions.worldLoaded({
+                worldData: { id: worldId, name: worldName, blocks: new Map() },
+                worldId
+              }));
+              observer.next({ worldId, worldName, world });
+              observer.complete();
+            }, 300);
+          } catch (error) {
+            console.error('Failed to load world from database:', error);
+            observer.error(error);
+          }
           return;
         }
 
@@ -163,44 +166,54 @@ export class WorldService {
     });
   }
 
-  private simulateWorldCreation(worldName: string, settings?: any): Observable<WorldInfo> {
-    const worldId = `world_${Date.now()}`;
-    let progress = 0;
-    
+  private performWorldCreation(worldName: string, settings?: any): Observable<WorldInfo> {
     const steps = [
       { progress: 10, details: 'Initializing world parameters...' },
-      { progress: 25, details: 'Generating terrain heightmap...' },
-      { progress: 45, details: 'Placing biomes and structures...' },
-      { progress: 65, details: 'Generating caves and ores...' },
+      { progress: 25, details: 'Creating world database entry...' },
+      { progress: 45, details: 'Setting up world structure...' },
+      { progress: 65, details: 'Preparing terrain generation...' },
       { progress: 80, details: 'Setting spawn point...' },
-      { progress: 95, details: 'Saving world data...' },
+      { progress: 95, details: 'Finalizing world creation...' },
       { progress: 100, details: 'World created successfully!' }
     ];
 
     return new Observable(observer => {
       let currentStep = 0;
       
-      const processStep = () => {
+      const processStep = async () => {
         if (currentStep >= steps.length) {
-          // World creation complete
-          setTimeout(() => {
-            const newWorld: WorldInfo = {
-              id: worldId,
+          try {
+            // Actually create world in database
+            const worldId = await this.dbService.createWorld({
               name: worldName,
-              created: Date.now(),
-              lastPlayed: Date.now(),
-              settings
-            };
-            
-            this.store.dispatch(WorldActions.newWorldCreated({
-              worldId: worldId,
-              worldName: worldName
-            }));
-            // Don't stop loading here - let game component handle the transition
-            // this.store.dispatch(UIActions.stopLoading());
-            observer.next(newWorld);
-            observer.complete();
-          }, 300);
+              settings: settings || {},
+              metadata: {
+                createdBy: 'WorldService',
+                terrainGenerated: false
+              }
+            });
+
+            // World creation complete
+            setTimeout(() => {
+              const newWorld: WorldInfo = {
+                id: worldId,
+                name: worldName,
+                created: Date.now(),
+                lastPlayed: Date.now(),
+                settings
+              };
+              
+              this.store.dispatch(WorldActions.newWorldCreated({
+                worldId: worldId,
+                worldName: worldName
+              }));
+              observer.next(newWorld);
+              observer.complete();
+            }, 300);
+          } catch (error) {
+            console.error('Failed to create world in database:', error);
+            observer.error(error);
+          }
           return;
         }
 
