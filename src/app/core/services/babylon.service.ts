@@ -521,6 +521,9 @@ export class BabylonService {
             
             // Clamp vertical rotation
             this.camera.rotation.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, this.camera.rotation.x));
+            
+            // Update character controller orientation for proper movement direction
+            this.physicsService.updateCameraOrientation(this.camera.rotation);
           }
           break;
       }

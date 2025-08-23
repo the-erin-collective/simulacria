@@ -10,7 +10,10 @@ import {
   PhysicsShapeType,
   PhysicsAggregate,
   HavokPlugin,
-  Ray
+  Ray,
+  PhysicsCharacterController,
+  CharacterSupportedState,
+  Quaternion
 } from '@babylonjs/core';
 import HavokPhysics from "@babylonjs/havok";
 import { Vector3 } from '../../shared/models/block.model';
@@ -21,17 +24,25 @@ import { Vector3 } from '../../shared/models/block.model';
 export class PhysicsService {
   private havokPlugin!: HavokPlugin;
   private scene!: Scene;
-  private playerBody!: PhysicsAggregate;
-  private playerMesh!: AbstractMesh;
+  private characterController!: PhysicsCharacterController;
+  private displayCapsule!: AbstractMesh;
   private blockBodies = new Map<string, PhysicsAggregate>();
   private isBrowser: boolean;
   
-  // Player physics properties
-  private jumpForce = 8;
-  private movementSpeed = 5;
-  private isGrounded = false;
+  // Character Controller properties
   private playerHeight = 1.8;
-  private playerRadius = 0.3;
+  private playerRadius = 0.6;
+  private onGroundSpeed = 8.0;
+  private inAirSpeed = 6.0;
+  private jumpHeight = 1.5;
+  private characterGravity = new BVector3(0, -18, 0);
+  
+  // Character state
+  private state = "IN_AIR";
+  private wantJump = false;
+  private inputDirection = new BVector3(0, 0, 0);
+  private characterOrientation = Quaternion.Identity();
+  private forwardLocalSpace = new BVector3(0, 0, 1);
 
   constructor(@Inject(PLATFORM_ID) private platformId: Object) {
     this.isBrowser = isPlatformBrowser(this.platformId);
@@ -62,44 +73,73 @@ export class PhysicsService {
     // Initialize Havok plugin
     this.havokPlugin = new HavokPlugin(true, havokInstance);
     
-    // Enable physics in the scene
+    // Enable physics in the scene with proper gravity
     scene.enablePhysics(new BVector3(0, -9.81, 0), this.havokPlugin);
     
-    // Create player physics body
-    this.createPlayerPhysicsBody();
+    // Create character controller
+    this.createCharacterController();
+    
+    // Setup physics update loop
+    this.setupPhysicsLoop();
     
     console.log('Havok physics initialized successfully');
   }
 
-  private createPlayerPhysicsBody(): void {
+  private createCharacterController(): void {
     // Return early if not in browser (during SSR)
     if (!this.isBrowser) {
       return;
     }
     
-    // Create invisible player capsule mesh
-    this.playerMesh = MeshBuilder.CreateCapsule('player', { 
+    // Create display capsule (invisible)
+    this.displayCapsule = MeshBuilder.CreateCapsule('player', { 
       height: this.playerHeight, 
       radius: this.playerRadius 
     }, this.scene);
-    this.playerMesh.isVisible = false;
+    this.displayCapsule.isVisible = false;
     
-    // Position player at a safe starting location (will be updated by spawning service)
-    // This is the physics body center position
-    this.playerMesh.position = new BVector3(0, 0, 20);
+    // Initial character position
+    const characterPosition = new BVector3(0, 0, 20);
     
-    // Create physics aggregate for player
-    this.playerBody = new PhysicsAggregate(
-      this.playerMesh,
-      PhysicsShapeType.CAPSULE,
-      { mass: 70, restitution: 0.1, friction: 0.4 }, // Increased friction for better control
+    // Create Physics Character Controller
+    this.characterController = new PhysicsCharacterController(
+      characterPosition, 
+      { 
+        capsuleHeight: this.playerHeight, 
+        capsuleRadius: this.playerRadius 
+      }, 
       this.scene
     );
     
-    // Set motion type to dynamic
-    this.playerBody.body.setMotionType(PhysicsMotionType.DYNAMIC);
+    console.log('Character controller created at position (0, 0, 20) - will be repositioned by spawning system');
+  }
+  
+  private setupPhysicsLoop(): void {
+    // Return early if not in browser (during SSR)
+    if (!this.isBrowser) {
+      return;
+    }
     
-    console.log('Player physics body created at position (0, 0, 20) - will be repositioned by spawning system');
+    // After physics update, compute and set new velocity, update the character controller state
+    this.scene.onAfterPhysicsObservable.add((_) => {
+      if (!this.scene.deltaTime || !this.characterController) return;
+      
+      let dt = this.scene.deltaTime / 1000.0;
+      if (dt === 0) return;
+      
+      let down = new BVector3(0, -1, 0);
+      let support = this.characterController.checkSupport(dt, down);
+      
+      let desiredLinearVelocity = this.getDesiredVelocity(dt, support, this.characterController.getVelocity());
+      this.characterController.setVelocity(desiredLinearVelocity);
+      
+      this.characterController.integrate(dt, support, this.characterGravity);
+      
+      // Update display capsule position
+      if (this.displayCapsule) {
+        this.displayCapsule.position.copyFrom(this.characterController.getPosition());
+      }
+    });
   }
 
   addBlockPhysics(position: Vector3, key: string): void {
@@ -108,14 +148,15 @@ export class PhysicsService {
       return;
     }
     
-    // Create block physics body
+    // Create block physics body using mesh shape for character controller
     const blockMesh = MeshBuilder.CreateBox(`physics_block_${key}`, { size: 1 }, this.scene);
     blockMesh.position = new BVector3(position.x, position.y, position.z);
     blockMesh.isVisible = false; // Invisible physics body
     
+    // Use MESH shape type for better character controller collision
     const blockAggregate = new PhysicsAggregate(
       blockMesh,
-      PhysicsShapeType.BOX,
+      PhysicsShapeType.MESH, // Changed from BOX to MESH for character controller
       { mass: 0 }, // Static block
       this.scene
     );
@@ -160,112 +201,165 @@ export class PhysicsService {
 
   applyPlayerMovement(moveDirection: BVector3, jump: boolean): void {
     // Return early if not in browser (during SSR)
-    if (!this.isBrowser || !this.playerBody) {
+    if (!this.isBrowser || !this.characterController) {
       return;
     }
     
-    // Get current velocity
-    const velocity = this.playerBody.body.getLinearVelocity();
+    // Update input direction and jump state
+    this.inputDirection.copyFrom(moveDirection);
+    this.wantJump = jump;
     
-    // Apply horizontal movement
-    const horizontalMove = new BVector3(
-      moveDirection.x * this.movementSpeed,
-      velocity.y, // Preserve vertical velocity
-      moveDirection.z * this.movementSpeed
-    );
-    
-    // Check if grounded for jumping
-    this.checkGrounded();
-    
-    // Apply jump if grounded
-    if (jump && this.isGrounded) {
-      horizontalMove.y = this.jumpForce;
-      this.isGrounded = false;
+    // Character orientation updates automatically via physics loop
+  }
+  
+  private getDesiredVelocity(deltaTime: number, supportInfo: any, currentVelocity: BVector3): BVector3 {
+    let nextState = this.getNextState(supportInfo);
+    if (nextState !== this.state) {
+      this.state = nextState;
     }
     
-    // Apply the new velocity
-    this.playerBody.body.setLinearVelocity(horizontalMove);
+    let upWorld = this.characterGravity.normalizeToNew();
+    upWorld.scaleInPlace(-1.0);
+    let forwardWorld = this.forwardLocalSpace.applyRotationQuaternion(this.characterOrientation);
+    
+    if (this.state === "IN_AIR") {
+      let desiredVelocity = this.inputDirection.scale(this.inAirSpeed).applyRotationQuaternion(this.characterOrientation);
+      let outputVelocity = this.characterController.calculateMovement(deltaTime, forwardWorld, upWorld, currentVelocity, BVector3.ZeroReadOnly, desiredVelocity, upWorld);
+      
+      // Restore to original vertical component
+      outputVelocity.addInPlace(upWorld.scale(-outputVelocity.dot(upWorld)));
+      outputVelocity.addInPlace(upWorld.scale(currentVelocity.dot(upWorld)));
+      // Add gravity
+      outputVelocity.addInPlace(this.characterGravity.scale(deltaTime));
+      return outputVelocity;
+      
+    } else if (this.state === "ON_GROUND") {
+      let desiredVelocity = this.inputDirection.scale(this.onGroundSpeed).applyRotationQuaternion(this.characterOrientation);
+      let outputVelocity = this.characterController.calculateMovement(deltaTime, forwardWorld, supportInfo.averageSurfaceNormal, currentVelocity, supportInfo.averageSurfaceVelocity, desiredVelocity, upWorld);
+      
+      // Ground movement calculations
+      outputVelocity.subtractInPlace(supportInfo.averageSurfaceVelocity);
+      let inv1k = 1e-3;
+      if (outputVelocity.dot(upWorld) > inv1k) {
+        let velLen = outputVelocity.length();
+        outputVelocity.normalizeFromLength(velLen);
+        
+        // Get the desired length in the horizontal direction
+        let horizLen = velLen / supportInfo.averageSurfaceNormal.dot(upWorld);
+        
+        // Re project the velocity onto the horizontal plane
+        let c = supportInfo.averageSurfaceNormal.cross(outputVelocity);
+        outputVelocity = c.cross(upWorld);
+        outputVelocity.scaleInPlace(horizLen);
+      }
+      outputVelocity.addInPlace(supportInfo.averageSurfaceVelocity);
+      return outputVelocity;
+      
+    } else if (this.state === "START_JUMP") {
+      let upWorld = this.characterGravity.normalizeToNew();
+      upWorld.scaleInPlace(-1.0);
+      let u = Math.sqrt(2 * this.characterGravity.length() * this.jumpHeight);
+      let curRelVel = currentVelocity.dot(upWorld);
+      return currentVelocity.add(upWorld.scale(u - curRelVel));
+    }
+    
+    return BVector3.Zero();
+  }
+  
+  private getNextState(supportInfo: any): string {
+    if (this.state === "IN_AIR") {
+      if (supportInfo.supportedState === CharacterSupportedState.SUPPORTED) {
+        return "ON_GROUND";
+      }
+      return "IN_AIR";
+    } else if (this.state === "ON_GROUND") {
+      if (supportInfo.supportedState !== CharacterSupportedState.SUPPORTED) {
+        return "IN_AIR";
+      }
+      if (this.wantJump) {
+        return "START_JUMP";
+      }
+      return "ON_GROUND";
+    } else if (this.state === "START_JUMP") {
+      return "IN_AIR";
+    }
+    return this.state;
   }
 
   getPlayerPosition(): Vector3 {
-    // Return default position if not in browser or player mesh not available
-    if (!this.isBrowser || !this.playerMesh) {
+    // Return default position if not in browser or character controller not available
+    if (!this.isBrowser || !this.characterController) {
       return { x: 0, y: 0, z: 0 };
     }
     
-    // Return the physics body center position
-    // Z is vertical in this coordinate system
+    // Return the character controller position
+    const pos = this.characterController.getPosition();
     return {
-      x: this.playerMesh.position.x,
-      y: this.playerMesh.position.y,
-      z: this.playerMesh.position.z
+      x: pos.x,
+      y: pos.y,
+      z: pos.z
     };
   }
 
   setPlayerPosition(position: Vector3): void {
     // Return early if not in browser (during SSR)
-    if (!this.isBrowser || !this.playerMesh) {
+    if (!this.isBrowser || !this.characterController) {
       return;
     }
     
-    // Position is for physics body center, mesh position should be the center
-    // In this coordinate system, Z is vertical (up/down)
-    this.playerMesh.position = new BVector3(position.x, position.y, position.z);
-    console.log(`Player positioned at physics center: (${position.x}, ${position.y}, ${position.z})`);
+    // Set character controller position
+    this.characterController.setPosition(new BVector3(position.x, position.y, position.z));
+    
+    // Update display capsule
+    if (this.displayCapsule) {
+      this.displayCapsule.position = new BVector3(position.x, position.y, position.z);
+    }
+    
+    console.log(`Player positioned at: (${position.x}, ${position.y}, ${position.z})`);
   }
 
   // Force set player position and reset velocity (for spawning)
   forceSetPlayerPosition(position: Vector3): void {
     // Return early if not in browser (during SSR)
-    if (!this.isBrowser || !this.playerMesh || !this.playerBody) {
+    if (!this.isBrowser || !this.characterController) {
       return;
     }
     
-    // Set mesh position
-    this.playerMesh.position = new BVector3(position.x, position.y, position.z);
+    // Set character controller position
+    this.characterController.setPosition(new BVector3(position.x, position.y, position.z));
     
-    // Reset velocity to prevent falling through terrain
-    this.playerBody.body.setLinearVelocity(new BVector3(0, 0, 0));
-    this.playerBody.body.setAngularVelocity(new BVector3(0, 0, 0));
+    // Reset velocity
+    this.characterController.setVelocity(new BVector3(0, 0, 0));
     
-    // Reset grounded state
-    this.isGrounded = false;
+    // Reset state
+    this.state = "IN_AIR";
+    this.wantJump = false;
+    this.inputDirection.set(0, 0, 0);
     
-    console.log(`Player force positioned at: (${position.x}, ${position.y}, ${position.z}) with reset velocity`);
-  }
-
-  private checkGrounded(): void {
-    // Return early if not in browser (during SSR)
-    if (!this.isBrowser || !this.playerMesh || !this.scene) {
-      return;
+    // Update display capsule
+    if (this.displayCapsule) {
+      this.displayCapsule.position = new BVector3(position.x, position.y, position.z);
     }
     
-    // Cast a ray downward from player to check if grounded
-    const rayStart = this.playerMesh.position.clone();
-    rayStart.y -= this.playerHeight / 2; // Start from bottom of player
-    
-    const rayDirection = new BVector3(0, -1, 0);
-    const rayLength = 0.2;
-    
-    // Create a ray
-    const ray = new Ray(rayStart, rayDirection, rayLength);
-    
-    // Perform ray cast using scene.pickWithRay
-    const hit = this.scene.pickWithRay(ray, (mesh) => {
-      // Check if ray hits any physics block mesh (not the physics bodies, but the visible meshes)
-      return mesh.name.startsWith('physics_block_');
-    });
-    
-    this.isGrounded = hit?.hit || false;
+    console.log(`Player force positioned at: (${position.x}, ${position.y}, ${position.z}) with reset state`);
   }
 
   isPlayerGrounded(): boolean {
     // Return false if not in browser (during SSR)
-    if (!this.isBrowser) {
+    if (!this.isBrowser || !this.characterController) {
       return false;
     }
     
-    return this.isGrounded;
+    return this.state === "ON_GROUND";
+  }
+  
+  updateCameraOrientation(cameraRotation: BVector3): void {
+    // Update character orientation based on camera rotation
+    if (!this.isBrowser) {
+      return;
+    }
+    
+    Quaternion.FromEulerAnglesToRef(0, cameraRotation.y, 0, this.characterOrientation);
   }
 
   dispose(): void {
@@ -274,11 +368,17 @@ export class PhysicsService {
       return;
     }
     
-    // Clean up all physics bodies
-    if (this.playerBody) {
-      this.playerBody.dispose();
+    // Clean up character controller
+    if (this.characterController) {
+      //this.characterController.dispose();
     }
     
+    // Clean up display capsule
+    if (this.displayCapsule) {
+      this.displayCapsule.dispose();
+    }
+    
+    // Clean up all block physics bodies
     for (const [key, blockBody] of this.blockBodies) {
       blockBody.dispose();
     }
